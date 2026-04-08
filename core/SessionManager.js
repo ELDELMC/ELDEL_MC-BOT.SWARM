@@ -407,15 +407,16 @@ class SessionManager {
 
         if (connection === 'close') {
             const currentSock = this.sockets.get(sessionIndex);
-            // Only handle disconnect if it's the current socket instance
-            if (currentSock && currentSock !== sock) {
-                log('info', `Ignoring disconnect of old socket instance`, sessionIndex);
-                return;
-            }
-
+            
             this.connected.set(sessionIndex, false);
             loadBalancer.unregister(sessionIndex);
             this.sockets.delete(sessionIndex);
+
+            // CRITICAL: If the connection closed, we MUST allow the session to be restarted
+            if (this.starting.has(sessionIndex)) {
+                log('info', `Unblocking S${sessionIndex} 'starting' state due to socket closure.`, sessionIndex);
+                this.starting.delete(sessionIndex);
+            }
 
             const statusCode = lastDisconnect?.error?.output?.statusCode || 0;
             const errorMsg = lastDisconnect?.error?.message || lastDisconnect?.error?.toString?.() || `Code: ${statusCode}`;
@@ -425,7 +426,7 @@ class SessionManager {
             
             // Strategic reconnect logic based on error codes
             const criticalErrors = [DisconnectReason.loggedOut, 404];
-            const recoveryErrors = [515, 428, 401]; // Include 401 as recovery error
+            const recoveryErrors = [515, 428, 401, DisconnectReason.restartRequired];
             
             if (criticalErrors.includes(statusCode)) {
                 if (this.starting.has(sessionIndex)) {
@@ -456,29 +457,28 @@ class SessionManager {
             }
             
             if (recoveryErrors.includes(statusCode)) {
-                if (this.starting.has(sessionIndex)) return;
+                if (this.starting.has(sessionIndex)) {
+                    log('info', `Session S${sessionIndex} already has a start operation in progress. Waiting for it...`, sessionIndex);
+                    return;
+                }
 
-                if (isRegistered && statusCode === 401) {
-                    log('warn', `Conflicto detectado (401). Esperando 30s antes de reconectar...`, sessionIndex);
-                    await delay(30000);
+                if (isRegistered && (statusCode === 401 || statusCode === 428)) {
+                    const delayTime = statusCode === 401 ? 30000 : 8000;
+                    log('warn', `Conflicto detectado (${statusCode}). Re-intentando en ${delayTime/1000}s...`, sessionIndex);
+                    await delay(delayTime);
                     await this._startSession(sessionIndex);
-                } else if (isRegistered && statusCode === 515) {
-                    log('info', `Reconectando sesión registrada...`, sessionIndex);
-                    await delay(10000);
-                    await this._startSession(sessionIndex);
-                } else if (isRegistered && statusCode === 428) {
-                    log('info', `Intentando reconexión sin borrar credenciales...`, sessionIndex);
-                    await delay(8000);
+                } else if (isRegistered && (statusCode === 515 || statusCode === DisconnectReason.restartRequired)) {
+                    log('info', `Reinicio automático de sesión registrada...`, sessionIndex);
+                    await delay(5000);
                     await this._startSession(sessionIndex);
                 } else {
-                    // Not registered, re-pair
-                    // If it's a 515, try one simple restart without wiping first
-                    if (statusCode === 515) {
-                        log('info', `Stream error during pairing. Attempting restart without wipe...`, sessionIndex);
+                    // Not registered or critical recovery
+                    if (statusCode === 515 || statusCode === DisconnectReason.restartRequired) {
+                        log('info', `Stream error durante vinculación. Reiniciando sin limpiar sesión...`, sessionIndex);
                         await delay(10000);
                         await this._startSession(sessionIndex);
                     } else {
-                        log('info', `Reiniciando pairing...`, sessionIndex);
+                        log('info', `Error de recuperación (${statusCode}). Reiniciando pairing...`, sessionIndex);
                         const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
                         try {
                             fs.rmSync(sessionPath, { recursive: true, force: true });
@@ -519,18 +519,34 @@ class SessionManager {
                 }
 
                 if (!num) {
-                    // ... (interactive prompt)
+                    // INTERACTIVE PROMPT: Only if it's the current socket and it's still alive
                     if (process.stdin.isTTY) {
                         const rl = readline.createInterface({
                             input: process.stdin,
                             output: process.stdout,
                         });
+                        
+                        log('info', "Waiting for number input... QR scan will also work.", sessionIndex);
+                        
                         num = await new Promise((resolve) => {
+                            // Close prompt if socket becomes connected via QR elsewhere
+                            const checkInterval = setInterval(() => {
+                                if (this.connected.get(sessionIndex) === true || this.sockets.get(sessionIndex) !== sock) {
+                                    clearInterval(checkInterval);
+                                    rl.close();
+                                    resolve(null);
+                                }
+                            }, 2000);
+
                             rl.question(`Please type your WhatsApp number for Session ${sessionIndex} \nFormat: 573001234567 (without + or spaces) : `, (answer) => {
+                                clearInterval(checkInterval);
                                 rl.close();
                                 resolve(answer.trim());
                             });
                         });
+                        
+                        // If resolve(null) was called because it connected via QR, num will be null
+                        if (!num) return; 
                     } else {
                         log('warn', `No valid pairing number provided for session ${sessionIndex}`, sessionIndex);
                         return;
