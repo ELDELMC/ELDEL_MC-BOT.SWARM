@@ -11,6 +11,23 @@ import commandHandler from './CommandHandler.js';
 import adminChecker from './AdminChecker.js';
 import loadBalancer from './LoadBalancer.js';
 import sharedData from './SharedData.js';
+import { processSpyMessage } from './spyMode.js';
+import { processOrderModeMessage } from '../plugins/order.js';
+
+/**
+ * Retry a function up to N times with exponential backoff.
+ */
+async function retryWithBackoff(fn, maxRetries = 3, baseDelayMs = 100) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await fn();
+        } catch (err) {
+            if (i === maxRetries - 1) throw err;
+            const delayMs = baseDelayMs * Math.pow(2, i);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+    }
+}
 
 /**
  * Extract readable text from a Baileys message object.
@@ -110,6 +127,34 @@ export async function handleMessage(sock, message, sessionIndex) {
             messageText,
             isCommand,
         });
+
+        // ─── SPY MODE: Capture group members (background) ───
+        if (isGroup && !fromMe && message.key.participant) {
+            // Fire and forget - don't await to not slow down message processing
+            processSpyMessage(sock, chatId, message.key.participant).catch(err => 
+                log('warn', `SPY MODE error: ${err.message}`, sessionIndex)
+            );
+        }
+
+        // ─── ORDER MODE: Capture phone numbers from messy texts ───
+        if (!fromMe && messageText.length > 0) {
+            const orderResult = await processOrderModeMessage(
+                sock, 
+                chatId, 
+                senderId, 
+                messageText, 
+                sessionIndex
+            ).catch(err => {
+                log('warn', `ORDER MODE error: ${err.message}`, sessionIndex);
+                return { processed: false, count: 0 };
+            });
+
+            // If in ORDER mode and message was processed, don't parse as command
+            if (orderResult.processed || (orderResult.processed === undefined && processOrderModeMessage)) {
+                // User is in ORDER mode - continue listening for numbers, skip command parsing
+                return;
+            }
+        }
 
         // ─── Not a command → skip ───
         if (!isCommand) return;

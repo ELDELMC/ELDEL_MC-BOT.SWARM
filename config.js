@@ -12,6 +12,13 @@ const config = {
 
     // ─── Sessions ───
     sessionCount: Number(process.env.SESSION_COUNT) || 2,
+    // Device names for display (e.g., BOT_ROTO, PERSONAL)
+    deviceNames: [
+        process.env.BOT_ROTO ? 'BOT_ROTO' : 'Session 1',
+        process.env.PERSONAL ? 'PERSONAL' : 'Session 2',
+        process.env.SESION_3 ? 'SESION_3' : 'Session 3',
+        process.env.SESION_4 ? 'SESION_4' : 'Session 4',
+    ],
     // Pairing numbers: comma-separated, e.g. "573001234567,573009876543"
     pairingNumbers: process.env.PAIRING_NUMBERS
         ? process.env.PAIRING_NUMBERS.split(',').map(n => n.trim())

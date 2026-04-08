@@ -30,6 +30,22 @@ class SharedData {
         if (!fs.existsSync(DATA_DIR)) {
             fs.mkdirSync(DATA_DIR, { recursive: true });
         }
+
+        // Cleanup old cache entries every 5 minutes
+        this._cleanupInterval = setInterval(() => {
+            const now = Date.now();
+            let cleaned = 0;
+            for (const [file, ts] of this.cacheTimestamps.entries()) {
+                if (now - ts > 600000) { // 10 min
+                    this.cache.delete(file);
+                    this.cacheTimestamps.delete(file);
+                    cleaned++;
+                }
+            }
+            if (cleaned > 0) {
+                log('debug', `SharedData: cleaned ${cleaned} old cache entries`);
+            }
+        }, 300000);
     }
 
     /**
@@ -64,7 +80,15 @@ class SharedData {
                 return defaultValue;
             }
             const raw = fs.readFileSync(fp, 'utf-8');
-            const data = JSON.parse(raw);
+            let data;
+            try {
+                data = JSON.parse(raw);
+            } catch (jsonErr) {
+                log('error', `SharedData corrupted JSON [${filename}]. Resetting to default. Error: ${jsonErr.message}`);
+                // Reset to default on corruption
+                this.write(filename, defaultValue);
+                return defaultValue;
+            }
             this.cache.set(filename, data);
             this.cacheTimestamps.set(filename, now);
             return data;

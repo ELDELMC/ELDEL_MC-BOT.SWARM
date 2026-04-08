@@ -3,5 +3,6 @@ sessions/
 data/
 temp/
 logs/
+db/
 .env
 *.log

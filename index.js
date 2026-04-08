@@ -13,6 +13,19 @@ import { log, logBanner } from './core/Logger.js';
 import commandHandler from './core/CommandHandler.js';
 import sessionManager from './core/SessionManager.js';
 import sharedData from './core/SharedData.js';
+import { startFlushCycle } from './core/spyMode.js';
+
+// ─── Global error handlers ───
+process.on('unhandledRejection', (reason, promise) => {
+    log('error', `Unhandled Promise Rejection: ${reason}`);
+});
+
+process.on('uncaughtException', (err) => {
+    log('error', `Uncaught Exception: ${err.message}`);
+    console.error(err.stack);
+    // Exit cleanly
+    setTimeout(() => process.exit(1), 1000);
+});
 
 // ─── Data defaults ───
 const DATA_DEFAULTS = {
@@ -40,9 +53,65 @@ app.get('/', (_req, res) => {
     });
 });
 
-app.listen(PORT, () => {
-    log('success', `Health server on port ${PORT}`);
+// Start server with port fallback
+let server;
+const tryPort = (port, maxAttempts = 3) => {
+    return new Promise((resolve, reject) => {
+        const srv = app.listen(port, () => {
+            log('success', `Health server on port ${port}`);
+            resolve(srv);
+        }).on('error', (err) => {
+            if (err.code === 'EADDRINUSE' && maxAttempts > 1) {
+                log('warn', `Port ${port} in use, trying ${port + 1}...`);
+                tryPort(port + 1, maxAttempts - 1).then(resolve).catch(reject);
+            } else {
+                reject(err);
+            }
+        });
+    });
+};
+
+tryPort(PORT).then(srv => {
+    server = srv;
+}).catch(err => {
+    log('error', `Failed to start health server: ${err.message}`);
+    process.exit(1);
 });
+
+// Graceful shutdown for Express server
+const shutdown = () => {
+    log('info', 'Received shutdown signal, closing Express server...');
+    
+    // Clean up session locks
+    try {
+        const sessionsDir = path.join(process.cwd(), 'sessions');
+        if (fs.existsSync(sessionsDir)) {
+            const sessionFolders = fs.readdirSync(sessionsDir);
+            for (const folder of sessionFolders) {
+                if (folder.startsWith('session-')) {
+                    const lockFile = path.join(sessionsDir, folder, '.session.lock');
+                    try {
+                        if (fs.existsSync(lockFile)) {
+                            fs.unlinkSync(lockFile);
+                            log('info', `Removed session lock: ${folder}`);
+                        }
+                    } catch (_) { /* ignore */ }
+                }
+            }
+        }
+    } catch (_) { /* ignore */ }
+    
+    if (server) {
+        server.close(() => {
+            log('info', 'Express server closed, exiting process');
+            process.exit(0);
+        });
+    } else {
+        process.exit(0);
+    }
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 // ─── Memory watchdog ───
 setInterval(() => {
@@ -52,6 +121,21 @@ setInterval(() => {
         process.exit(1);
     }
 }, 30_000);
+
+// ─── Session health watchdog ───
+setInterval(() => {
+    const status = sessionManager.getStatus();
+    const connectedCount = Object.values(status).filter(s => s.connected).length;
+    const totalCount = Object.keys(status).length;
+    
+    if (connectedCount === 0 && totalCount > 0) {
+        log('error', `⚠️ No sessions connected (0/${totalCount}). Health check failed!`);
+    } else if (connectedCount < totalCount) {
+        log('warn', `Session health: ${connectedCount}/${totalCount} connected`);
+    } else {
+        log('success', `Session health: ${connectedCount}/${totalCount} connected ✓`);
+    }
+}, 60_000);
 
 // ─── Temp folder ───
 const tempDir = path.join(process.cwd(), 'temp');
@@ -75,17 +159,6 @@ setInterval(() => {
     } catch (_e) { /* silent */ }
 }, 60 * 60 * 1000);
 
-// ─── Error handlers ───
-process.on('uncaughtException', (err) => {
-    log('error', `Uncaught Exception: ${err.message}`);
-    console.error(err.stack);
-});
-
-process.on('unhandledRejection', (err) => {
-    log('error', `Unhandled Rejection: ${err?.message || err}`);
-    if (err?.stack) console.error(err.stack);
-});
-
 // ─── MAIN ───
 async function main() {
     logBanner(config.sessionCount);
@@ -98,6 +171,9 @@ async function main() {
     log('info', `Prefixes: ${config.prefixes.join(', ')}`);
     log('info', `Sessions: ${config.sessionCount}`);
     log('info', `Mode: ${config.commandMode}`);
+
+    // ─── SPY MODE: Iniciar flush periódico al disco ───
+    startFlushCycle();
 
     // Start all sessions
     await sessionManager.startAll();

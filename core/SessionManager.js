@@ -7,6 +7,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import readline from 'readline';
 import makeWASocket, {
     useMultiFileAuthState,
@@ -25,6 +26,7 @@ import deduplicator from './Deduplicator.js';
 import loadBalancer from './LoadBalancer.js';
 import adminChecker from './AdminChecker.js';
 import { handleMessage } from './MessageHandler.js';
+import { attachSpyListener } from './spyEvent.js';
 
 class SessionManager {
     constructor() {
@@ -33,6 +35,93 @@ class SessionManager {
         /** @type {Map<number, boolean>} sessionIndex → connected */
         this.connected = new Map();
         this.sessionsDir = path.join(process.cwd(), 'sessions');
+        // Track sessions that are waiting for manual re‑pairing after a logout
+        this.awaitingPairing = new Set();
+        // Track sessions currently in the process of starting to prevent concurrent starts
+        this.starting = new Set();
+        // Lock timeout: if a lock is older than this, it's considered stale (5 minutes)
+        this.lockTimeoutMs = 5 * 60 * 1000;
+    }
+
+    /**
+     * Check if another process is using this session (lock file).
+     * @returns {boolean} true if locked by another process
+     */
+    _isSessionLocked(sessionIndex) {
+        const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
+        const lockFile = path.join(sessionPath, '.session.lock');
+        
+        try {
+            if (!fs.existsSync(lockFile)) return false;
+            
+            const lockData = fs.readFileSync(lockFile, 'utf-8');
+            const { timestamp, pid } = JSON.parse(lockData);
+            
+            // Check if lock is stale
+            const age = Date.now() - timestamp;
+            if (age > this.lockTimeoutMs) {
+                log('warn', `Stale lock found for session ${sessionIndex} (age: ${(age/1000).toFixed(0)}s). Removing...`, sessionIndex);
+                fs.unlinkSync(lockFile);
+                return false;
+            }
+            
+            // Check if the process actually exists
+            try {
+                process.kill(pid, 0); // Signal 0 = check if process exists
+                return true; // Process exists, session is locked
+            } catch (_) {
+                // Process doesn't exist, remove stale lock
+                fs.unlinkSync(lockFile);
+                return false;
+            }
+        } catch (_) {
+            return false;
+        }
+    }
+
+    /**
+     * Create a lock file for this session.
+     */
+    _lockSession(sessionIndex) {
+        const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
+        
+        // Ensure session directory exists first
+        if (!fs.existsSync(sessionPath)) {
+            try {
+                fs.mkdirSync(sessionPath, { recursive: true });
+            } catch (err) {
+                log('warn', `Failed to create session directory: ${err.message}`, sessionIndex);
+                return;
+            }
+        }
+        
+        const lockFile = path.join(sessionPath, '.session.lock');
+        
+        try {
+            fs.writeFileSync(lockFile, JSON.stringify({
+                timestamp: Date.now(),
+                pid: process.pid,
+                host: os.hostname(),
+            }), 'utf-8');
+        } catch (err) {
+            log('warn', `Failed to create session lock: ${err.message}`, sessionIndex);
+        }
+    }
+
+    /**
+     * Remove lock file for this session.
+     */
+    _unlockSession(sessionIndex) {
+        const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
+        const lockFile = path.join(sessionPath, '.session.lock');
+        
+        try {
+            if (fs.existsSync(lockFile)) {
+                fs.unlinkSync(lockFile);
+            }
+        } catch (_) {
+            // Ignore
+        }
     }
 
     /**
@@ -48,12 +137,55 @@ class SessionManager {
 
         log('session', `Starting ${count} sessions...`);
 
-        const startPromises = [];
+        // Start sessions SEQUENTIALLY with aggressive delays to prevent conflicts
         for (let i = 1; i <= count; i++) {
-            startPromises.push(this._startSession(i));
+            // Stagger session starts to avoid simultaneous connection conflicts
+            const delayBefore = i === 1 ? 0 : 90000; // S2: wait 90s after S1 connects
+            if (delayBefore > 0) {
+                log('info', `Session ${i} iniciará en ${delayBefore / 1000}s (evitar conflictos)...`, i);
+                await delay(delayBefore);
+            }
+            
+            await this._startSession(i);
+            
+            // Wait for this session to connect successfully (unless it's the last one)
+            if (i < count) {
+                log('info', `Esperando conexión de sesión ${i}...`, i);
+                await this._waitForConnection(i, 180000); // Wait max 3 minutes
+            }
         }
+    }
 
-        await Promise.allSettled(startPromises);
+    /**
+     * Wait for a session to successfully connect.
+     * @param {number} sessionIndex - 1-based session number
+     * @param {number} timeoutMs - Maximum time to wait in milliseconds
+     */
+    async _waitForConnection(sessionIndex, timeoutMs = 120000) {
+        return new Promise((resolve) => {
+            // Check immediately
+            if (this.connected.get(sessionIndex) === true) {
+                resolve();
+                return;
+            }
+
+            // Poll every 500ms until connected or timeout
+            const startTime = Date.now();
+            const pollInterval = setInterval(() => {
+                if (this.connected.get(sessionIndex) === true) {
+                    clearInterval(pollInterval);
+                    resolve();
+                    return;
+                }
+
+                if (Date.now() - startTime > timeoutMs) {
+                    clearInterval(pollInterval);
+                    log('warn', `Timeout waiting for session ${sessionIndex} to connect`, sessionIndex);
+                    resolve(); // Resolve anyway, don't block forever
+                    return;
+                }
+            }, 500);
+        });
     }
 
     /**
@@ -61,35 +193,83 @@ class SessionManager {
      * @param {number} sessionIndex - 1-based
      */
     async _startSession(sessionIndex) {
-        const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
-
-        // Ensure session folder
-        if (!fs.existsSync(sessionPath)) {
-            fs.mkdirSync(sessionPath, { recursive: true });
+        if (this.starting.has(sessionIndex)) {
+            log('warn', `Session ${sessionIndex} already starting... skipping.`, sessionIndex);
+            return;
         }
 
+        // Check if another process is using this session
+        if (this._isSessionLocked(sessionIndex)) {
+            log('warn', `Session ${sessionIndex} is locked by another process. Waiting...`, sessionIndex);
+            await delay(10000);
+            return; // Don't attempt to start
+        }
+
+        this.starting.add(sessionIndex);
+
         try {
+            const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
+            
+            // Create lock file for this session
+            this._lockSession(sessionIndex);
+            
+            // Clean up existing socket if any
+            const existingSock = this.sockets.get(sessionIndex);
+            if (existingSock) {
+                try { existingSock.end(); } catch (_) { /* ignore */ }
+                this.sockets.delete(sessionIndex);
+            }
+
             const { version } = await fetchLatestBaileysVersion();
+            
+            const credsPath = path.join(sessionPath, 'creds.json');
+            // If the session isn't registered (no creds.json or empty), force a clean start
+            if (fs.existsSync(credsPath)) {
+                try {
+                    const stats = fs.statSync(credsPath);
+                    if (stats.size < 100) { // If it's too small/empty
+                        fs.unlinkSync(credsPath);
+                    } else {
+                        // Validate JSON integrity
+                        try {
+                            const raw = fs.readFileSync(credsPath, 'utf-8');
+                            JSON.parse(raw);
+                        } catch (e) {
+                            log('warn', `Corrupted creds.json detected, removing for fresh auth`, sessionIndex);
+                            fs.unlinkSync(credsPath);
+                        }
+                    }
+                } catch (_) { /* ignore */ }
+            }
+
             const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
             const sock = makeWASocket({
                 version,
                 logger: pino({ level: 'silent' }),
-                browser: Browsers.macOS('Chrome'),
+                browser: Browsers.ubuntu('Chrome'),
                 auth: {
                     creds: state.creds,
-                    keys: makeCacheableSignalKeyStore(
-                        state.keys,
-                        pino({ level: 'fatal' }).child({ level: 'fatal' })
-                    ),
+                    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' }).child({ level: 'fatal' })),
                 },
+                printQRInTerminal: false,
                 markOnlineOnConnect: true,
-                generateHighQualityLinkPreview: false,
                 syncFullHistory: false,
+                generateHighQualityLinkPreview: false,
+                shouldIgnoreJids: ['status@broadcast'],
                 getMessage: async () => ({ conversation: '' }),
-                defaultQueryTimeoutMs: 60000,
-                connectTimeoutMs: 60000,
-                keepAliveIntervalMs: 10000,
+                
+                // ─── CONNECTION SETTINGS ───
+                defaultQueryTimeoutMs: 120000,
+                connectTimeoutMs: 120000,
+                keepAliveIntervalMs: 30000,
+                qrTimeout: 300000,
+                maxDiffSyncMs: 86400000,
+                
+                // ─── RETRY SETTINGS ───
+                retryRequestDelayMs: 100,
+                maxMsgsInMemory: 50,
+                msgRetryCounterMax: 3,
             });
 
             // Store socket
@@ -100,6 +280,8 @@ class SessionManager {
 
             // ─── Connection update ───
             sock.ev.on('connection.update', async (update) => {
+                const { connection, lastDisconnect, qr, isNewLogin } = update;
+                log('info', `[CONNECTION UPDATE] connection: ${connection}, qr: ${!!qr}, isNewLogin: ${isNewLogin}, lastError: ${lastDisconnect?.error?.message}`, sessionIndex);
                 await this._handleConnectionUpdate(sessionIndex, sock, update);
             });
 
@@ -132,6 +314,9 @@ class SessionManager {
                 }
             });
 
+            // ─── SPY MODE: Extracción pasiva de números reales ───
+            attachSpyListener(sock, sessionIndex);
+
             // ─── Group updates ───
             sock.ev.on('group-participants.update', async (update) => {
                 // Invalidate admin cache when group membership changes
@@ -162,9 +347,13 @@ class SessionManager {
 
         } catch (err) {
             log('error', `Failed to start session: ${err.message}`, sessionIndex);
-            // Retry after delay
+            // Retry after delay (careful with recursion)
             await delay(5000);
-            return this._startSession(sessionIndex);
+            // We don't call startSession here anymore to avoid deep recursion
+            // Instead, we rely on the connection.update or manual restart
+        } finally {
+            this._unlockSession(sessionIndex);
+            this.starting.delete(sessionIndex);
         }
     }
 
@@ -172,7 +361,22 @@ class SessionManager {
      * Handle connection state changes.
      */
     async _handleConnectionUpdate(sessionIndex, sock, update) {
-        const { connection, lastDisconnect, qr } = update;
+        const { connection, lastDisconnect, qr, isNewLogin } = update;
+
+        if (qr) {
+            try {
+                const QRCode = (await import('qrcode')).default;
+                console.log(`\n[S${sessionIndex}] Escanea el siguiente QR si no deseas usar Código de Vinculación:`);
+                console.log(await QRCode.toString(qr, { type: 'terminal', small: true }));
+                log('info', `QR generado. Esperando escaneo...`, sessionIndex);
+            } catch (_e) {
+                log('info', `QR generado (no se pudo renderizar)`, sessionIndex);
+            }
+        }
+
+        if (connection === 'connecting') {
+            log('info', `Conectando...`, sessionIndex);
+        }
 
         if (connection === 'open') {
             this.connected.set(sessionIndex, true);
@@ -181,95 +385,174 @@ class SessionManager {
             const user = sock.user || {};
             const phoneNum = user.id?.split(':')[0] || 'unknown';
 
-            log('success', `Connected! Phone: ${phoneNum}`, sessionIndex);
-
-            // Send a startup message to self
-            try {
-                const botJid = `${phoneNum}@s.whatsapp.net`;
-                await sock.sendMessage(botJid, {
-                    text: `🐝 JUANCHOTE-SWARM\n\n✅ Session S${sessionIndex} connected\n⏰ ${new Date().toLocaleString('es-CO', { timeZone: config.timeZone })}\n🤖 Bot: ${config.botName}`,
-                });
-            } catch (_e) { /* silent */ }
+            log('success', `🎉 CONECTADA! Teléfono: ${phoneNum}`, sessionIndex);
+            console.log(`\n✅ Session ${sessionIndex} conectada exitosamente!\n`);
+            
+            // Reset authState tracking
+            if (this.awaitingPairing.has(sessionIndex)) {
+                this.awaitingPairing.delete(sessionIndex);
+            }
+            
+            // IMPORTANT: Keep alive pinging
+            if (!sock.keepAliveIntervalMs || sock.keepAliveIntervalMs < 30000) {
+                log('info', `Configurando keep-alive a 30s`, sessionIndex);
+            }
         }
 
         if (connection === 'close') {
             this.connected.set(sessionIndex, false);
             loadBalancer.unregister(sessionIndex);
+            this.sockets.delete(sessionIndex);
 
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 401;
-
-            if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                log('warn', `Logged out. Clearing session for re-pairing...`, sessionIndex);
+            const statusCode = lastDisconnect?.error?.output?.statusCode || 0;
+            const errorMsg = lastDisconnect?.error?.message || lastDisconnect?.error?.toString?.() || `Code: ${statusCode}`;
+            const isRegistered = sock.authState?.creds?.registered === true;
+            
+            log('warn', `Cerrada. Código: ${statusCode}, Error: ${errorMsg}, Registrado: ${isRegistered}`, sessionIndex);
+            
+            // Strategic reconnect logic based on error codes
+            const criticalErrors = [DisconnectReason.loggedOut, 404];
+            const recoveryErrors = [515, 428, 401]; // Include 401 as recovery error
+            
+            if (criticalErrors.includes(statusCode)) {
+                // CRITICAL: Wipe and require re-pairing
+                log('error', `Error crítico ${statusCode}. Limpiando sesión...`, sessionIndex);
                 const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
                 try {
                     fs.rmSync(sessionPath, { recursive: true, force: true });
-                } catch (_e) { /* silent */ }
-                await delay(3000);
-                this._startSession(sessionIndex);
+                    fs.mkdirSync(sessionPath, { recursive: true });
+                } catch (_) {}
+                this.awaitingPairing.add(sessionIndex);
+                log('info', `Sesión limpiada. Re-intentando inicio para vinculación...`, sessionIndex);
+                
+                // Delay before restarting to allow clean state
+                await delay(5000);
+                await this._startSession(sessionIndex);
                 return;
             }
 
-            if (shouldReconnect) {
-                log('warn', `Disconnected (code: ${statusCode}). Reconnecting in 5s...`, sessionIndex);
-                await delay(5000);
-                this._startSession(sessionIndex);
+            
+            // CONFLICT: Session replaced (typically happens with multi-session on same device)
+            if (statusCode === 440) {
+                log('warn', `Conflicto detectado (440). Esperando 90s antes de reconectar...`, sessionIndex);
+                await delay(90000);
+                await this._startSession(sessionIndex);
+                return;
             }
+            
+            if (recoveryErrors.includes(statusCode)) {
+                // RECOVERY: Retry without wiping credentials
+                if (isRegistered && statusCode === 401) {
+                    // Conflict - registered session, try reconnect with longer delay
+                    log('warn', `Conflicto detectado (401). Esperando 30s antes de reconectar...`, sessionIndex);
+                    await delay(30000);
+                    await this._startSession(sessionIndex);
+                } else if (isRegistered && statusCode === 515) {
+                    // Stream error but registered, reconnect normally
+                    log('info', `Reconectando sesión registrada...`, sessionIndex);
+                    await delay(10000);
+                    await this._startSession(sessionIndex);
+                } else if (isRegistered && statusCode === 428) {
+                    // Connection closed but registered - try reconnect first
+                    log('info', `Intentando reconexión sin borrar credenciales...`, sessionIndex);
+                    await delay(8000);
+                    await this._startSession(sessionIndex);
+                } else {
+                    // Not registered, re-pair
+                    log('info', `Reiniciando pairing...`, sessionIndex);
+                    const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
+                    try {
+                        fs.rmSync(sessionPath, { recursive: true, force: true });
+                        fs.mkdirSync(sessionPath, { recursive: true });
+                    } catch (_) {}
+                    await delay(5000);
+                    await this._startSession(sessionIndex);
+                }
+                return;
+            }
+            
+            // Transient errors: simple reconnect
+            const delayMs = statusCode === 440 ? 15000 : 10000;
+            log('warn', `Reconectando en ${delayMs / 1000}s...`, sessionIndex);
+            await delay(delayMs);
+            await this._startSession(sessionIndex);
         }
     }
 
-    /**
-     * Handle pairing code flow for a new session.
-     */
     async _handlePairing(sessionIndex, sock) {
         const pairingNumbers = config.pairingNumbers || [];
-        let phoneNumber = pairingNumbers[sessionIndex - 1] || '';
+        // Prioritize individual variables like BOT_ROTO, PERSONAL, etc
+        // Fallback to comma separated list or owner number
+        let phoneNumberInput = process.env[`PAIRING_NUMBER_${sessionIndex}`] ||
+                             process.env[config.deviceNames[sessionIndex - 1]] ||
+                             pairingNumbers[sessionIndex - 1] ||
+                             config.ownerNumber;
 
-        if (!phoneNumber) {
-            // If no pairing number configured, try interactive input
-            if (process.stdin.isTTY) {
-                const rl = readline.createInterface({
-                    input: process.stdin,
-                    output: process.stdout,
-                });
+            const doPairing = async (num, attempt = 1) => {
+                if (!num) {
+                    // Interactive prompt if no number
+                    if (process.stdin.isTTY) {
+                        const rl = readline.createInterface({
+                            input: process.stdin,
+                            output: process.stdout,
+                        });
+                        num = await new Promise((resolve) => {
+                            rl.question(`Please type your WhatsApp number for Session ${sessionIndex} \nFormat: 573001234567 (without + or spaces) : `, (answer) => {
+                                rl.close();
+                                resolve(answer.trim());
+                            });
+                        });
+                    } else {
+                        log('warn', `No valid pairing number provided for session ${sessionIndex}`, sessionIndex);
+                        return;
+                    }
+                }
 
-                phoneNumber = await new Promise((resolve) => {
-                    rl.question(`[S${sessionIndex}] Enter WhatsApp number (e.g. 573001234567): `, (answer) => {
-                        rl.close();
-                        resolve(answer.trim());
-                    });
-                });
-            } else {
-                log('warn', `No pairing number for session ${sessionIndex}. Set PAIRING_NUMBERS in .env`, sessionIndex);
-                return;
-            }
-        }
+                num = num.replace(/[^0-9]/g, '');
+                const pn = parsePhoneNumber(`+${num}`);
+                if (!pn.valid) {
+                    log('error', `Invalid phone format: ${num}`, sessionIndex);
+                    return;
+                }
 
-        phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-        if (!phoneNumber) {
-            log('error', `Invalid phone number for session ${sessionIndex}`, sessionIndex);
-            return;
-        }
+                // CRITICAL: Wait for Noise keys if they are not yet generated
+                // Baileys needs these keys to be populated in the auth state before requestPairingCode
+                if (!sock.authState?.creds?.noiseKey) {
+                    if (attempt < 15) {
+                        // log('info', `Waiting for internal keys... (attempt ${attempt})`, sessionIndex);
+                        await delay(1000);
+                        return doPairing(num, attempt + 1);
+                    }
+                }
 
-        const pn = parsePhoneNumber(`+${phoneNumber}`);
-        if (!pn.valid) {
-            log('error', `Invalid phone format: ${phoneNumber}`, sessionIndex);
-            return;
-        }
+                try {
+                    log('info', `Attempting pairing for Session ${sessionIndex} with: ${num}`, sessionIndex);
+                    let code = await sock.requestPairingCode(num);
+                    code = code?.match(/.{1,4}/g)?.join('-') || code;
+                    log('success', `Pairing code generated: ${code}`, sessionIndex);
+                    const deviceName = config.deviceNames[sessionIndex - 1] || `S${sessionIndex}`;
+                    console.log(`\n  🔑 [${deviceName}] Your Pairing Code : ${code}\n`);
+                    console.log(`   📱 Vincular en WhatsApp → Configuración → Dispositivos vinculados\n`);
+                    console.log(`   ⏱️  Tienes 5 minutos para vincular - escanea el código o usa: ${code}\n`);
+                } catch (err) {
+                    const errorMsg = err?.message || err?.toString?.() || 'Unknown error';
+                    // Increase retries to 8 for better resilience
+                    if (attempt < 8) {
+                        const delayTime = attempt < 3 ? 15000 : 20000; // Longer delays for later attempts
+                        log('warn', `Pairing failed (attempt ${attempt}/8): ${errorMsg}. Retrying in ${delayTime/1000}s...`, sessionIndex);
+                        await delay(delayTime);
+                        return doPairing(num, attempt + 1);
+                    } else {
+                        log('error', `❌ Pairing failed after 8 attempts: ${errorMsg}. Check internet connection and try again.`, sessionIndex);
+                    }
+                }
+            };
 
-        // Wait for connection to be ready
-        await delay(3000);
-
-        try {
-            let code = await sock.requestPairingCode(phoneNumber);
-            code = code?.match(/.{1,4}/g)?.join('-') || code;
-            log('success', `Pairing code: ${code}`, sessionIndex);
-            console.log(`\n  🔑 [S${sessionIndex}] PAIRING CODE: ${code}\n`);
-        } catch (err) {
-            log('error', `Pairing failed: ${err.message}`, sessionIndex);
-            await delay(5000);
-            this._startSession(sessionIndex);
-        }
+            // Wait longer for socket to establish initial auth state before attempting pairing
+            // This ensures all internal keys (noiseKey, etc.) are properly initialized
+            // Increased to 25s to allow proper WebSocket connection with WhatsApp servers
+            await delay(25000);
+            await doPairing(phoneNumberInput);
     }
 
     /**

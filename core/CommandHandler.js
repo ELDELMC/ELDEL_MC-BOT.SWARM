@@ -132,6 +132,17 @@ class CommandHandler {
         }
 
         this.cooldowns.set(key, now);
+        
+        // Cleanup old entries every 100 additions (prevent memory leak)
+        if (this.cooldowns.size > 5000) {
+            const oldestThreshold = now - 3600000; // 1 hour
+            for (const [key, ts] of this.cooldowns.entries()) {
+                if (ts < oldestThreshold) {
+                    this.cooldowns.delete(key);
+                }
+            }
+        }
+        
         return false;
     }
 
