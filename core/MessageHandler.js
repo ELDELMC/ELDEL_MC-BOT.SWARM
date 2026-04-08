@@ -166,8 +166,11 @@ export async function handleMessage(sock, message, sessionIndex) {
         }
 
         // ─── Parse command ───
-        const match = commandHandler.getCommand(messageText.toLowerCase(), config.prefixes);
+        const match = commandHandler.getCommand(messageText, config.prefixes);
         if (!match) {
+            // Log unrecognized command attempt for debugging
+            log('info', `Unrecognized command attempt: ${messageText.split(' ')[0]}`, sessionIndex);
+            
             // Try suggestion
             const usedPrefix = config.prefixes.find(p => messageText.startsWith(p));
             if (usedPrefix) {
@@ -186,6 +189,7 @@ export async function handleMessage(sock, message, sessionIndex) {
 
         // ─── Cooldown ───
         if (commandHandler.isOnCooldown(senderId, cmd.command, cmd.cooldown || 3000)) {
+            log('info', `Cooldown triggered for ${cmd.command} (User: ${senderId.split('@')[0]})`, sessionIndex);
             return;
         }
 
@@ -194,6 +198,7 @@ export async function handleMessage(sock, message, sessionIndex) {
 
         // Owner-only commands
         if (cmd.ownerOnly && !senderIsOwner) {
+            log('warn', `Owner command ${cmd.command} REJECTED for non-owner: ${senderId.split('@')[0]}`, sessionIndex);
             await sock.sendMessage(chatId, {
                 text: reply('Este comando es solo para el owner del bot.'),
             }, { quoted: message });
@@ -202,6 +207,7 @@ export async function handleMessage(sock, message, sessionIndex) {
 
         // Group-only commands
         if (cmd.groupOnly && !isGroup) {
+            log('warn', `Group command ${cmd.command} REJECTED in private chat with: ${senderId.split('@')[0]}`, sessionIndex);
             await sock.sendMessage(chatId, {
                 text: reply('Este comando solo funciona en grupos.'),
             }, { quoted: message });
@@ -213,19 +219,20 @@ export async function handleMessage(sock, message, sessionIndex) {
         let isBotAdmin = false;
 
         if (cmd.adminOnly && isGroup) {
-            // For admin commands, we might need to pick a different session
+            log('info', `Checking admins for command ${cmd.command}...`, sessionIndex);
             const adminResult = await adminChecker.check(sock, chatId, senderId);
             isBotAdmin = adminResult.isBotAdmin;
             isSenderAdmin = adminResult.isSenderAdmin;
 
             if (!isBotAdmin) {
                 // Try to find another session that IS admin
+                log('balancer', `Local session S${sessionIndex} is not admin. Searching alternatives...`, sessionIndex);
                 const alternative = await loadBalancer.pick(chatId, true);
                 if (alternative && alternative.sessionIndex !== sessionIndex) {
                     const altAdmin = await adminChecker.check(alternative.sock, chatId, senderId);
                     if (altAdmin.isBotAdmin) {
                         // Delegate to the admin session
-                        log('balancer', `Delegating admin command to S${alternative.sessionIndex}`, sessionIndex);
+                        log('balancer', `Successfully delegated ${cmd.command} to S${alternative.sessionIndex} (admin session)`, sessionIndex);
                         sock = alternative.sock;
                         isBotAdmin = altAdmin.isBotAdmin;
                         isSenderAdmin = altAdmin.isSenderAdmin;
@@ -233,6 +240,7 @@ export async function handleMessage(sock, message, sessionIndex) {
                 }
 
                 if (!isBotAdmin) {
+                    log('warn', `Admin command ${cmd.command} REJECTED: Bot is not admin in ${chatId}`, sessionIndex);
                     await sock.sendMessage(chatId, {
                         text: reply('El bot necesita ser administrador para ejecutar este comando.'),
                     }, { quoted: message });
@@ -241,6 +249,7 @@ export async function handleMessage(sock, message, sessionIndex) {
             }
 
             if (!isSenderAdmin && !senderIsOwner) {
+                log('warn', `Admin command ${cmd.command} REJECTED: User ${senderId.split('@')[0]} is not admin`, sessionIndex);
                 await sock.sendMessage(chatId, {
                     text: reply('Solo los administradores del grupo pueden usar este comando.'),
                 }, { quoted: message });

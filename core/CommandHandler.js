@@ -46,9 +46,15 @@ class CommandHandler {
                 const module = await import(moduleURL);
                 const plugin = module.default || module;
 
-                if (plugin.command && typeof plugin.handler === 'function') {
+                // Support both 'handler' and 'execute' for compatibility
+                const handler = plugin.handler || plugin.execute;
+
+                if (plugin.command && typeof handler === 'function') {
+                    plugin.handler = handler; // Normalize to use 'handler'
                     this._register(plugin);
                     loaded++;
+                } else {
+                    log('warn', `Plugin ${file} is missing 'command' string or 'handler' function`);
                 }
             } catch (err) {
                 log('error', `Failed to load plugin ${file}: ${err.message}`);

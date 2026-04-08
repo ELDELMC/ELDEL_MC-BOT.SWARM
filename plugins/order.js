@@ -99,6 +99,10 @@ export default {
     await sock.sendMessage(chatId, { text: responseText }, { quoted: message });
     log('info', `📡 [ORDER] Activado para ${senderId.split('@')[0]} en ${isGroup ? 'grupo' : 'privado'}`, sessionIndex);
   },
+
+  async handler(sock, message, args, context) {
+    return this.execute(sock, message, args, context.sessionIndex);
+  }
 };
 
 /**
