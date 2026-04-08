@@ -347,10 +347,16 @@ class SessionManager {
 
         } catch (err) {
             log('error', `Failed to start session: ${err.message}`, sessionIndex);
-            // Retry after delay (careful with recursion)
-            await delay(5000);
-            // We don't call startSession here anymore to avoid deep recursion
-            // Instead, we rely on the connection.update or manual restart
+            // If it failed very early, ensure it's removed from starting so retry mechanisms can work
+            this.starting.delete(sessionIndex);
+            this._unlockSession(sessionIndex);
+            
+            // Strategic restart for critical initialization failures
+            if (err.message.includes('Connection Closed') || err.message.includes('Stream Errored')) {
+                log('info', `Trying emergency restart in 10s...`, sessionIndex);
+                await delay(10000);
+                return this._startSession(sessionIndex);
+            }
         } finally {
             this._unlockSession(sessionIndex);
             this.starting.delete(sessionIndex);
@@ -400,6 +406,13 @@ class SessionManager {
         }
 
         if (connection === 'close') {
+            const currentSock = this.sockets.get(sessionIndex);
+            // Only handle disconnect if it's the current socket instance
+            if (currentSock && currentSock !== sock) {
+                log('info', `Ignoring disconnect of old socket instance`, sessionIndex);
+                return;
+            }
+
             this.connected.set(sessionIndex, false);
             loadBalancer.unregister(sessionIndex);
             this.sockets.delete(sessionIndex);
@@ -415,6 +428,11 @@ class SessionManager {
             const recoveryErrors = [515, 428, 401]; // Include 401 as recovery error
             
             if (criticalErrors.includes(statusCode)) {
+                if (this.starting.has(sessionIndex)) {
+                     log('warn', `Already restarting session ${sessionIndex}, skipping duplicate request`, sessionIndex);
+                     return;
+                }
+                
                 // CRITICAL: Wipe and require re-pairing
                 log('error', `Error crítico ${statusCode}. Limpiando sesión...`, sessionIndex);
                 const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
@@ -425,14 +443,11 @@ class SessionManager {
                 this.awaitingPairing.add(sessionIndex);
                 log('info', `Sesión limpiada. Re-intentando inicio para vinculación...`, sessionIndex);
                 
-                // Delay before restarting to allow clean state
                 await delay(5000);
                 await this._startSession(sessionIndex);
                 return;
             }
 
-            
-            // CONFLICT: Session replaced (typically happens with multi-session on same device)
             if (statusCode === 440) {
                 log('warn', `Conflicto detectado (440). Esperando 90s antes de reconectar...`, sessionIndex);
                 await delay(90000);
@@ -441,41 +456,48 @@ class SessionManager {
             }
             
             if (recoveryErrors.includes(statusCode)) {
-                // RECOVERY: Retry without wiping credentials
+                if (this.starting.has(sessionIndex)) return;
+
                 if (isRegistered && statusCode === 401) {
-                    // Conflict - registered session, try reconnect with longer delay
                     log('warn', `Conflicto detectado (401). Esperando 30s antes de reconectar...`, sessionIndex);
                     await delay(30000);
                     await this._startSession(sessionIndex);
                 } else if (isRegistered && statusCode === 515) {
-                    // Stream error but registered, reconnect normally
                     log('info', `Reconectando sesión registrada...`, sessionIndex);
                     await delay(10000);
                     await this._startSession(sessionIndex);
                 } else if (isRegistered && statusCode === 428) {
-                    // Connection closed but registered - try reconnect first
                     log('info', `Intentando reconexión sin borrar credenciales...`, sessionIndex);
                     await delay(8000);
                     await this._startSession(sessionIndex);
                 } else {
                     // Not registered, re-pair
-                    log('info', `Reiniciando pairing...`, sessionIndex);
-                    const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
-                    try {
-                        fs.rmSync(sessionPath, { recursive: true, force: true });
-                        fs.mkdirSync(sessionPath, { recursive: true });
-                    } catch (_) {}
-                    await delay(5000);
-                    await this._startSession(sessionIndex);
+                    // If it's a 515, try one simple restart without wiping first
+                    if (statusCode === 515) {
+                        log('info', `Stream error during pairing. Attempting restart without wipe...`, sessionIndex);
+                        await delay(10000);
+                        await this._startSession(sessionIndex);
+                    } else {
+                        log('info', `Reiniciando pairing...`, sessionIndex);
+                        const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
+                        try {
+                            fs.rmSync(sessionPath, { recursive: true, force: true });
+                            fs.mkdirSync(sessionPath, { recursive: true });
+                        } catch (_) {}
+                        await delay(5000);
+                        await this._startSession(sessionIndex);
+                    }
                 }
                 return;
             }
             
             // Transient errors: simple reconnect
-            const delayMs = statusCode === 440 ? 15000 : 10000;
-            log('warn', `Reconectando en ${delayMs / 1000}s...`, sessionIndex);
-            await delay(delayMs);
-            await this._startSession(sessionIndex);
+            if (!this.starting.has(sessionIndex)) {
+                const delayMs = statusCode === 440 ? 15000 : 10000;
+                log('warn', `Reconectando en ${delayMs / 1000}s...`, sessionIndex);
+                await delay(delayMs);
+                await this._startSession(sessionIndex);
+            }
         }
     }
 
@@ -489,8 +511,15 @@ class SessionManager {
                              config.ownerNumber;
 
             const doPairing = async (num, attempt = 1) => {
+                // Stop if socket was replaced or closed
+                if (this.sockets.get(sessionIndex) !== sock) return;
+                if (this.connected.get(sessionIndex) === false) {
+                    log('warn', `Stopping pairing loop: connection closed`, sessionIndex);
+                    return;
+                }
+
                 if (!num) {
-                    // Interactive prompt if no number
+                    // ... (interactive prompt)
                     if (process.stdin.isTTY) {
                         const rl = readline.createInterface({
                             input: process.stdin,
@@ -515,12 +544,10 @@ class SessionManager {
                     return;
                 }
 
-                // CRITICAL: Wait for Noise keys if they are not yet generated
-                // Baileys needs these keys to be populated in the auth state before requestPairingCode
+                // Wait for readiness
                 if (!sock.authState?.creds?.noiseKey) {
-                    if (attempt < 15) {
-                        // log('info', `Waiting for internal keys... (attempt ${attempt})`, sessionIndex);
-                        await delay(1000);
+                    if (attempt < 20) {
+                        await delay(2000);
                         return doPairing(num, attempt + 1);
                     }
                 }
@@ -536,22 +563,37 @@ class SessionManager {
                     console.log(`   ⏱️  Tienes 5 minutos para vincular - escanea el código o usa: ${code}\n`);
                 } catch (err) {
                     const errorMsg = err?.message || err?.toString?.() || 'Unknown error';
-                    // Increase retries to 8 for better resilience
+                    if (errorMsg.includes('Connection Closed') || errorMsg.includes('Stream Errored')) {
+                        log('warn', `Pairing interrupted by connection error. Stopping loop...`, sessionIndex);
+                        return;
+                    }
                     if (attempt < 8) {
-                        const delayTime = attempt < 3 ? 15000 : 20000; // Longer delays for later attempts
+                        const delayTime = attempt < 3 ? 15000 : 20000;
                         log('warn', `Pairing failed (attempt ${attempt}/8): ${errorMsg}. Retrying in ${delayTime/1000}s...`, sessionIndex);
                         await delay(delayTime);
                         return doPairing(num, attempt + 1);
                     } else {
-                        log('error', `❌ Pairing failed after 8 attempts: ${errorMsg}. Check internet connection and try again.`, sessionIndex);
+                        log('error', `❌ Pairing failed after 8 attempts: ${errorMsg}.`, sessionIndex);
                     }
                 }
             };
 
-            // Wait longer for socket to establish initial auth state before attempting pairing
-            // This ensures all internal keys (noiseKey, etc.) are properly initialized
-            // Increased to 25s to allow proper WebSocket connection with WhatsApp servers
-            await delay(25000);
+            // Intelligent wait: poll for readiness instead of blind 25s
+            let isReady = false;
+            for (let i = 0; i < 30; i++) {
+                if (this.sockets.get(sessionIndex) !== sock) return;
+                if (sock.authState?.creds?.noiseKey) {
+                    isReady = true;
+                    break;
+                }
+                await delay(1000);
+            }
+
+            if (!isReady) {
+                log('warn', `Socket not ready for pairing after 30s.`, sessionIndex);
+                return;
+            }
+
             await doPairing(phoneNumberInput);
     }
 
