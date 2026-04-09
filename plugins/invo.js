@@ -11,6 +11,9 @@ import sessionManager from '../core/SessionManager.js';
  * Usage: .invo (show databases) or .invo <number> (start inviting from selected DB)
  */
 
+// ✅ UNIFIED DATABASE PATH (same as SPY, ORDER)
+// En Docker: /home/container/db/grupos_clonados/
+// En local: ./db/grupos_clonados/
 const DB_PATH = path.join(process.cwd(), 'db', 'grupos_clonados');
 
 /**

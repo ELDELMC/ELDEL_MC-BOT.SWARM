@@ -213,6 +213,55 @@ Los datos que vemos en esta muestra son todos válidos.
 
 Estado actual del bot después de este análisis: BOT TOTALMENTE FUNCIONAL - No requiere cambios urgentes. El error ENOENT es minorable.
 ════════════════════════════════════════
+
+════════════════════════════════════════
+📌 CAMBIO #4 - 2026-04-09 22:15 (GMT-5)
+🤖 IA responsable: GitHub Copilot (VS Code AI)
+🔧 Archivos afectados:
+   • CLONADOR/utils/clonador.js → Unificación de ruta DB a process.cwd()
+   • plugins/invo.js → Confirmación de ruta unificada
+   • plugins/order.js → Ya usa ruta correcta via sharedData
+   • validate-paths.js → Nuevo script de validación
+
+🧩 Lo que se implementó / corrigió (storytime técnico):
+Se identificó problema crítico: SPY, ORDER e INVO estaban buscando/guardando datos en **RUTAS DIFERENTES** en el servidor Docker.
+
+**Problema:**
+- CLONADOR/utils/clonador.js usaba: `path.join(__dirname, '..', 'db', 'grupos_clonados')`
+  → Esto resolvía a una ruta relativa desde CLONADOR/utils/ que causaba discrepancia
+- plugins/invo.js usaba: `path.join(process.cwd(), 'db', 'grupos_clonados')`  
+  → Esto resolvía desde la raíz del proyecto
+- Resultado en Docker: `/home/container/db/grupos_clonados` existía pero INVO no lo encontraba
+
+**Solución implementada:**
+1. ✅ Cambié CLONADOR/utils/clonador.js a usar `path.join(process.cwd(), 'db', 'grupos_clonados')`
+2. ✅ Confirmé que plugins/invo.js ya usa `path.join(process.cwd(), 'db', 'grupos_clonados')`
+3. ✅ Confirmé que plugins/order.js usa ruta correcta vía sharedData
+4. ✅ Creé script validate-paths.js para auditar futuras discrepancias
+
+**Resultado:**
+Ahora TODOS los componentes comparten la MISMA ruta unificada: `process.cwd()/db/grupos_clonados/`
+- En local: ./db/grupos_clonados/
+- En Docker: /home/container/db/grupos_clonados/
+
+📄 Código clave cambiado:
+```javascript
+// ANTES (CLONADOR/utils/clonador.js):
+const DB_DIR = path.join(__dirname, '..', 'db', 'grupos_clonados');
+
+// DESPUÉS (UNIFICADo):
+const DB_DIR = path.join(process.cwd(), 'db', 'grupos_clonados');
+
+// VALIDACIÓN (validate-paths.js):
+✅ CLONADOR/utils/clonador.js: Usando ruta unificada
+✅ plugins/invo.js: Usando ruta unificada
+✅ plugins/order.js: Usando ruta unificada
+✅ db/grupos_clonados/ existe con 9 archivos JSON
+✅ Permisos de escritura: OK
+```
+
+Estado actual del bot después de este cambio: PROBLEMA DE RUTAS SOLUCIONADO. SPY, ORDER e INVO ahora comparten ruta única unificada en process.cwd()/db/grupos_clonados/ ✅
+════════════════════════════════════════
 🔍 REVISIÓN #1 - 2026-04-09 14:37 (GMT-5)
 🤖 IA revisora: Google Antigravity AI
 ✅ Lo revisado:

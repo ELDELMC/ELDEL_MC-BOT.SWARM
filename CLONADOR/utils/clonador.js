@@ -12,7 +12,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const fsp = fs.promises;
 
-const DB_DIR = path.join(__dirname, '..', 'db', 'grupos_clonados');
+// ✅ UNIFIED DATABASE PATH - Used by SPY, ORDER, INVO
+// En Docker: /home/container/db/
+// En local: ./db/
+const DB_DIR = path.join(process.cwd(), 'db', 'grupos_clonados');
 
 /**
  * Sanitiza el nombre del grupo para usarlo como nombre de archivo
