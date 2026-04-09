@@ -137,7 +137,7 @@ export async function handleMessage(sock, message, sessionIndex) {
         }
 
         // ─── ORDER MODE: Capture phone numbers from messy texts ───
-        if (!fromMe && messageText.length > 0) {
+        if (messageText.length > 0) {
             const orderResult = await processOrderModeMessage(
                 sock, 
                 chatId, 
@@ -149,9 +149,10 @@ export async function handleMessage(sock, message, sessionIndex) {
                 return { processed: false, count: 0 };
             });
 
-            // If in ORDER mode and message was processed, don't parse as command
-            if (orderResult.processed || (orderResult.processed === undefined && processOrderModeMessage)) {
-                // User is in ORDER mode - continue listening for numbers, skip command parsing
+            // If user is in active ORDER mode, we process numbers.
+            // If they send a command starting with prefix, we let it fall through.
+            if (orderResult.active && !isCommand) {
+                // User is in ORDER mode - skip command parsing for non-command text
                 return;
             }
         }

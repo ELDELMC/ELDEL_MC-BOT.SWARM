@@ -27,6 +27,7 @@ import loadBalancer from './LoadBalancer.js';
 import adminChecker from './AdminChecker.js';
 import { handleMessage } from './MessageHandler.js';
 import { attachSpyListener } from './spyEvent.js';
+import errorReporter from './ErrorReporter.js';
 
 class SessionManager {
     constructor() {
@@ -41,6 +42,8 @@ class SessionManager {
         this.starting = new Set();
         // Lock timeout: if a lock is older than this, it's considered stale (5 minutes)
         this.lockTimeoutMs = 5 * 60 * 1000;
+        // Track reconnection attempts for error reporting
+        this.reconnectionAttempts = new Map();
     }
 
     /**
@@ -399,6 +402,9 @@ class SessionManager {
                 this.awaitingPairing.delete(sessionIndex);
             }
             
+            // Reset reconnection attempt counter on successful connection
+            this.reconnectionAttempts.delete(sessionIndex);
+            
             // IMPORTANT: Keep alive pinging
             if (!sock.keepAliveIntervalMs || sock.keepAliveIntervalMs < 30000) {
                 log('info', `Configurando keep-alive a 30s`, sessionIndex);
@@ -424,11 +430,26 @@ class SessionManager {
             
             log('warn', `Cerrada. Código: ${statusCode}, Error: ${errorMsg}, Registrado: ${isRegistered}`, sessionIndex);
             
+            // ─── REPORT SIGNIFICANT DISCONNECTIONS ───
+            const reportableErrors = [401, 404, 440, 515, 428, DisconnectReason.loggedOut, DisconnectReason.restartRequired];
+            if (reportableErrors.includes(statusCode) && isRegistered) {
+                const reconnectAttempts = (this.reconnectionAttempts.get(sessionIndex) || 0) + 1;
+                this.reconnectionAttempts.set(sessionIndex, reconnectAttempts);
+                
+                // Report error asynchronously to avoid blocking reconnection logic
+                errorReporter.handleSessionDisconnection(sessionIndex, lastDisconnect?.error, reconnectAttempts).catch(err => {
+                    log('warn', `Failed to report session disconnection: ${err.message}`);
+                });
+            }
+            
             // Strategic reconnect logic based on error codes
             const criticalErrors = [DisconnectReason.loggedOut, 404];
             const recoveryErrors = [515, 428, 401, DisconnectReason.restartRequired];
             
             if (criticalErrors.includes(statusCode)) {
+                // Reset reconnection attempts on critical error
+                this.reconnectionAttempts.delete(sessionIndex);
+                
                 if (this.starting.has(sessionIndex)) {
                      log('warn', `Already restarting session ${sessionIndex}, skipping duplicate request`, sessionIndex);
                      return;

@@ -118,6 +118,10 @@ class SharedData {
     async _doWrite(filename, data) {
         const fp = this._filePath(filename);
         try {
+            const dir = path.dirname(fp);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
             const json = JSON.stringify(data, null, 2);
             fs.writeFileSync(fp, json, 'utf-8');
             // Update cache

@@ -23,28 +23,28 @@ const INACTIVITY_CHECK_INTERVAL = 30 * 1000; // Check every 30s
 function extractPhoneNumbers(text) {
   if (!text || typeof text !== 'string') return [];
 
-  // Remove line breaks and extra spaces for cleaner extraction
-  const cleanText = text.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+  // Remove line breaks for cleaner extraction
+  const cleanText = text.replace(/\n/g, ' ');
 
-  // Regex pattern: + followed by (2-3 digits) then (spaces/dashes/digits)
-  // Captures sequences like: +506 7101 3229, +51907749476, +54-9-3525-61-6630, etc
-  const phoneRegex = /\+(\d{1,3}[\s\-]?)(\d{1,4}[\s\-]?)(\d{1,4}[\s\-]?)(\d{1,4}[\s\-]?)(\d{1,4})?/g;
+  // Improved Regex:
+  // - Matches + followed by digits and typical separators
+  // - Also matches sequences of 10-15 digits that look like international numbers
+  const phoneRegex = /\+?(\d[\s\-\(\)\.]{0,2}){9,15}\d/g;
   
-  const matches = [...cleanText.matchAll(phoneRegex)];
+  const matches = cleanText.match(phoneRegex) || [];
   const numbers = [];
 
-  for (const match of matches) {
-    // Join all captured groups and remove spaces/dashes
-    const extracted = (match[1] + match[2] + match[3] + match[4] + (match[5] || ''))
-      .replace(/[\s\-]/g, '');
+  for (const raw of matches) {
+    // Clean all non-digit characters
+    const digits = raw.replace(/\D/g, '');
     
-    // Validate: country code (2-3 digits) + phone (7-12 digits) = 9-15 total
-    if (extracted.length >= 9 && extracted.length <= 15) {
-      numbers.push(`${extracted}@s.whatsapp.net`);
+    // Validate length for WhatsApp (usually 10-15 digits including country code)
+    if (digits.length >= 9 && digits.length <= 15) {
+      numbers.push(`${digits}@s.whatsapp.net`);
     }
   }
 
-  return numbers;
+  return [...new Set(numbers)]; // Unique in this message
 }
 
 /**
@@ -54,7 +54,7 @@ function cleanupInactiveUsers() {
   const now = Date.now();
   for (const [userId, data] of orderModeUsers.entries()) {
     if (data.active && (now - data.lastActivity) > TIMEOUT_MS) {
-      orderModeUsers.set(userId, { active: false, count: data.count });
+      orderModeUsers.delete(userId); // Completely remove to save memory
       log('info', `⏰ [ORDER MODE] Timeout para ${userId}: ${data.count} números procesados`);
     }
   }
@@ -83,18 +83,22 @@ export default {
 
     // Check if user is activating .order for first time
     const userData = orderModeUsers.get(senderId);
-    const wasActive = userData?.active;
+    
+    if (userData?.active) {
+        // Deactivate if already active (toggle behavior)
+        orderModeUsers.delete(senderId);
+        await sock.sendMessage(chatId, { text: '📴 Modo ORDER desactivado.' }, { quoted: message });
+        return;
+    }
 
     // Activate order mode
     orderModeUsers.set(senderId, {
       active: true,
       lastActivity: Date.now(),
-      count: userData?.count || 0,
+      count: 0,
     });
 
-    const responseText = wasActive
-      ? '🔄 Modo ORDER activo | Continuando recolección...'
-      : '📡 Modo ORDER activado ✓\nEsperando textos con números 📲\n(5 min de timeout)';
+    const responseText = '📡 Modo ORDER activado ✓\nEsperando textos con números 📲\n(5 min de timeout o envía .order para apagar)';
 
     await sock.sendMessage(chatId, { text: responseText }, { quoted: message });
     log('info', `📡 [ORDER] Activado para ${senderId.split('@')[0]} en ${isGroup ? 'grupo' : 'privado'}`, sessionIndex);
@@ -107,13 +111,13 @@ export default {
 
 /**
  * Hook: Called from MessageHandler for every message while user is in ORDER mode
- * Returns { processed: bool, count: number } if in active order mode
+ * Returns { processed: bool, count: number, active: bool }
  */
 export async function processOrderModeMessage(sock, chatId, senderId, messageText, sessionIndex) {
   const userData = orderModeUsers.get(senderId);
 
-  // Not in order mode or timeout reached
-  if (!userData?.active) return { processed: false, count: 0 };
+  // Not in order mode
+  if (!userData?.active) return { processed: false, count: 0, active: false };
 
   // Update last activity
   userData.lastActivity = Date.now();
@@ -121,18 +125,18 @@ export async function processOrderModeMessage(sock, chatId, senderId, messageTex
   // Extract phone numbers from message
   const numbers = extractPhoneNumbers(messageText);
   if (numbers.length === 0) {
-    return { processed: false, count: 0 }; // No numbers found, but still in active mode
+    return { processed: false, count: 0, active: true }; 
   }
 
-  // Load existing recupera2 database
+  // Load existing recupera2 database (synchronous call)
   let existingNumbers = new Set();
   try {
-    const fileData = await sharedData.read('db/grupos_clonados/recupera2.json');
+    const fileData = sharedData.read('db/grupos_clonados/recupera2.json', []);
     if (Array.isArray(fileData)) {
       existingNumbers = new Set(fileData);
     }
   } catch (err) {
-    // File doesn't exist yet, that's ok
+    log('error', `Error reading recupera2: ${err.message}`);
   }
 
   // Add new numbers (avoid duplicates)
@@ -158,15 +162,15 @@ export async function processOrderModeMessage(sock, chatId, senderId, messageTex
 
       await sock.sendMessage(chatId, {
         text: `✅ [ORDER] ${uniqueMsg}\nTotal recupera2: ${existingNumbers.size} | Sesión: ${userData.count}`,
-      });
+      }, { quoted: { key: { remoteJid: chatId }, message: { conversation: messageText } } }); // Subtle quote
 
       log('info', `✅ [ORDER] ${uniqueMsg} | Total acumulado: ${existingNumbers.size}`, sessionIndex);
-      return { processed: true, count: newNumbers.length };
+      return { processed: true, count: newNumbers.length, active: true };
     } catch (err) {
       log('error', `❌ [ORDER] Error al guardar: ${err.message}`, sessionIndex);
-      return { processed: false, count: 0 };
+      return { processed: false, count: 0, active: true };
     }
   }
 
-  return { processed: false, count: 0 }; // Numbers were duplicates
+  return { processed: false, count: 0, active: true }; // Numbers were duplicates
 }

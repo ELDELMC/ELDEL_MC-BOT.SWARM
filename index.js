@@ -13,18 +13,42 @@ import { log, logBanner } from './core/Logger.js';
 import commandHandler from './core/CommandHandler.js';
 import sessionManager from './core/SessionManager.js';
 import sharedData from './core/SharedData.js';
+import errorReporter from './core/ErrorReporter.js';
 import { startFlushCycle } from './core/spyMode.js';
 
 // ─── Global error handlers ───
-process.on('unhandledRejection', (reason, promise) => {
-    log('error', `Unhandled Promise Rejection: ${reason}`);
+let errorHandlerReady = false;
+
+// Flag to prevent exit during error reporting
+let isShuttingDown = false;
+
+process.on('unhandledRejection', async (reason, promise) => {
+    log('error', `Unhandled Promise Rejection: ${String(reason).substring(0, 100)}`);
+    
+    if (errorHandlerReady && !isShuttingDown) {
+        try {
+            await errorReporter.handleUnhandledRejection(reason, promise);
+        } catch (err) {
+            log('error', `Failed to report rejection: ${err.message}`);
+        }
+    }
 });
 
-process.on('uncaughtException', (err) => {
+process.on('uncaughtException', async (err) => {
+    isShuttingDown = true;
     log('error', `Uncaught Exception: ${err.message}`);
     console.error(err.stack);
-    // Exit cleanly
-    setTimeout(() => process.exit(1), 1000);
+    
+    if (errorHandlerReady) {
+        try {
+            await errorReporter.handleUncaughtException(err);
+        } catch (reportErr) {
+            log('error', `Failed to report exception: ${reportErr.message}`);
+        }
+    }
+    
+    // Exit cleanly after attempting to report
+    setTimeout(() => process.exit(1), 3000);
 });
 
 // ─── Data defaults ───
@@ -177,6 +201,9 @@ async function main() {
 
     // Start all sessions
     await sessionManager.startAll();
+
+    // Enable error reporting now that sessions are running
+    errorHandlerReady = true;
 
     log('success', 'JUANCHOTE-SWARM is running!');
 }
