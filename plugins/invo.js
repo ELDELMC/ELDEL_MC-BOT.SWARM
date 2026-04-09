@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { reply, bullet, header, toMono } from '../core/Formatter.js';
+import { DB_DIR } from '../CLONADOR/utils/clonador.js';
 import loadBalancer from '../core/LoadBalancer.js';
 import sessionManager from '../core/SessionManager.js';
 
@@ -11,16 +12,21 @@ import sessionManager from '../core/SessionManager.js';
  * Usage: .invo (show databases) or .invo <number> (start inviting from selected DB)
  */
 
-// ✅ UNIFIED DATABASE PATH (same as SPY, ORDER)
-// En Docker: /home/container/db/grupos_clonados/
-// En local: ./db/grupos_clonados/
-const DB_PATH = path.join(process.cwd(), 'db', 'grupos_clonados');
+// ✅ UNIFIED DATABASE PATH (imported from clonador utility)
+const DB_PATH = DB_DIR;
 
 /**
  * Read all database files and return their metadata.
  * @returns {Array<{index: number, name: string, file: string, count: number}>}
  */
 function getDatabaseList() {
+    if (!fs.existsSync(DB_PATH)) {
+        try {
+            fs.mkdirSync(DB_PATH, { recursive: true });
+        } catch (err) {
+            return [];
+        }
+    }
     const files = fs.readdirSync(DB_PATH).filter(f => f.endsWith('.json'));
     
     return files.map((file, index) => {

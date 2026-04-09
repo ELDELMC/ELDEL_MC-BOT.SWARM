@@ -97,10 +97,10 @@ for (const check of routeChecks) {
         routeInCode = `process.cwd() + '/db/grupos_clonados'`;
       }
     } else if (check.name === 'plugins/invo.js') {
-      const match = content.match(/process\.cwd\(\),\s*'db',\s*'grupos_clonados'/);
+      const match = content.match(/import\s*{\s*DB_DIR\s*}\s*from\s*'\.\.\/CLONADOR\/utils\/clonador\.js'/);
       if (match) {
         found = true;
-        routeInCode = `process.cwd() + '/db/grupos_clonados'`;
+        routeInCode = `Imported DB_DIR from clonador.js`;
       }
     } else if (check.name === 'plugins/order.js') {
       const match = content.match(/'db\/grupos_clonados\/recupera2\.json'/);
