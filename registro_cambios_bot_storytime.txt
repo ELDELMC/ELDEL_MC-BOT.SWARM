@@ -188,3 +188,41 @@ async recordMessage(chatId, senderId, senderName) {
 ```
 Estado actual del bot despuÃ©s de este cambio: Ahora cuenta mensajes y tiene un ranking de actividad funcional.
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+----------------------------------------
+?? REVISIÓN #2 - 2026-04-09 15:55 (GMT-5)
+?? IA revisora: Google Antigravity AI
+? Lo revisado:
+• core/ActivityTracker.js: Verificado conteo de mensajes.
+• plugins/top.js: Verificada visualización del ranking.
+• Inicialización en index.js: Correcta.
+? Errores o problemas encontrados:
+• Dispersión de archivos: Algunos datos se guardaban en 'db/' y otros en 'db/'.
+• Duplicidad de carpetas: La carpeta 'CLONADOR/db/' causaba confusión con la carpeta raíz 'db/'.
+? Mejoras / Correcciones realizadas:
+• Unificación absoluta de almacenamiento a la carpeta raíz 'db/'.
+?? Observaciones adicionales / Sugerencias para próximos pasos:
+• Mejorar la distribución de carga para que ambas sesiones colaboren en tiempo real (implementado en Cambio #4).
+----------------------------------------
+
+----------------------------------------
+?? CAMBIO #4 - 2026-04-09 16:00 (GMT-5)
+?? IA responsable: Google Antigravity AI
+?? Archivos afectados:
+   • plugins/order.js ? Soporte para respuestas (reply) y detección de números en texto citado.
+   • core/Deduplicator.js ? Implementación de Load Balancing por Hash para repartir carga entre sesiones.
+   • core/SharedData.js ? Cambio de ruta base 'data' a 'db' para unificación.
+   • [SISTEMA] ? Unificación de carpetas CLONADOR/db y data a la carpeta raíz db/.
+
+?? Lo que se implementó / corrigió (storytime técnico):
+1. **Balanceo de Carga Real (Swarm Collaboration):** Se modificó el 'Deduplicator' para que la elección de la sesión que procesa un mensaje no sea 'el primero que llegue', sino que se asigne mediante un Hash del ID del mensaje. Esto garantiza que las dos sesiones se repartan el trabajo equitativamente (50/50), permitiendo que ambas actúen en simultáneo contra el spam.
+2. **Mejora en .order:** Ahora el comando acepta ser usado respondiendo a un mensaje largo. El bot extraerá los números del mensaje citado, facilitando el uso si el texto se envió antes de activar el bot.
+3. **Unificación de Almacenamiento:** Se eliminaron las rutas redundantes. Todo archivo de datos ahora vive en 'db/'. Se migraron los archivos existentes de 'CLONADOR/db' y 'data' para no perder información.
+
+?? Código clave creado/modificado:
+`javascript
+// core/Deduplicator.js - Distribución de carga por Hash
+const assignedSession = (Math.abs(hash) % config.sessionCount) + 1;
+if (assignedSession !== sessionIndex) return false;
+`
+Estado actual del bot después de este cambio: Almacenamiento unificado, comando .order mejorado y sesiones colaborando en paralelo.
+----------------------------------------

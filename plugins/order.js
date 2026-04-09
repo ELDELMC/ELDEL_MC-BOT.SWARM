@@ -105,7 +105,46 @@ export default {
   },
 
   async handler(sock, message, args, context) {
-    return this.execute(sock, message, args, context.sessionIndex);
+    const { chatId, sessionIndex } = context;
+
+    // ─── REPLY SUPPORT ───
+    // If the user replies to a message with .order, we analyze that message
+    const quotedMsg = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (quotedMsg) {
+        const quotedText = quotedMsg.conversation || 
+                           quotedMsg.extendedTextMessage?.text || 
+                           quotedMsg.imageMessage?.caption || 
+                           quotedMsg.videoMessage?.caption || 
+                           '';
+        
+        if (quotedText) {
+            log('info', `📡 [ORDER] Analizando mensaje citado por @${context.senderId.split('@')[0]}`, sessionIndex);
+            
+            // Ensure user has an entry in orderModeUsers to track stats in this session
+            const senderId = context.senderId;
+            if (!orderModeUsers.has(senderId)) {
+                orderModeUsers.set(senderId, {
+                    active: true,
+                    lastActivity: Date.now(),
+                    count: 0,
+                });
+            } else {
+                orderModeUsers.get(senderId).active = true;
+                orderModeUsers.get(senderId).lastActivity = Date.now();
+            }
+
+            const result = await processOrderModeMessage(sock, chatId, senderId, quotedText, sessionIndex);
+            
+            if (!result.processed && result.count === 0) {
+                await sock.sendMessage(chatId, { 
+                    text: '❌ No se encontraron números nuevos en el mensaje citado.' 
+                }, { quoted: message });
+            }
+            return;
+        }
+    }
+
+    return this.execute(sock, message, args, sessionIndex);
   }
 };
 

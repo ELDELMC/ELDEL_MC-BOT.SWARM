@@ -38,6 +38,28 @@ class Deduplicator {
             return false;
         }
 
+        // ─── LOAD BALANCING / WORK DISTRIBUTION ───
+        // Use a simple hash of the message ID to 'assign' it to a session.
+        // This ensures that when N sessions receive the same message simultaneously,
+        // they naturally spread the work instead of Session 1 winning every race.
+        
+        const totalSessions = config.sessionCount || 1;
+        if (totalSessions > 1) {
+            // Primitive but effective hash from the message ID string
+            let hash = 0;
+            for (let i = 0; i < messageId.length; i++) {
+                hash = ((hash << 5) - hash) + messageId.charCodeAt(i);
+                hash |= 0; // Convert to 32bit integer
+            }
+            const assignedSession = (Math.abs(hash) % totalSessions) + 1;
+
+            if (assignedSession !== sessionIndex) {
+                // If it's not my 'assigned' turn, I skip the claim.
+                // This forces the other sessions to take their respective shares of the load.
+                return false;
+            }
+        }
+
         // Claim it
         this.seen.set(messageId, {
             sessionIndex,

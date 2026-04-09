@@ -13,7 +13,7 @@ import path from 'path';
 import { log } from './Logger.js';
 import config from '../config.js';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+const DATA_DIR = path.join(process.cwd(), 'db');
 
 class SharedData {
     constructor() {
