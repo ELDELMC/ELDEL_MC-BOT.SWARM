@@ -218,16 +218,21 @@ export default {
     cooldown: 5000,
 
     async handler(sock, message, args, context) {
-        const chatId = context.chatId;
+        const { chatId, sessionIndex } = context;
         const senderId = message.key.participant || message.key.remoteJid;
 
         try {
+            // Quick validation
+            if (!chatId) {
+                return;
+            }
+
             // Get list of databases
             const databases = getDatabaseList();
 
             if (databases.length === 0) {
                 await sock.sendMessage(chatId, {
-                    text: reply('❌ No hay bases de datos disponibles en db/grupos_clonados/'),
+                    text: reply('❌ No hay bases de datos disponibles.\n\nVerifica que existan archivos .json en:\ndb/grupos_clonados/'),
                 }, { quoted: message });
                 return;
             }

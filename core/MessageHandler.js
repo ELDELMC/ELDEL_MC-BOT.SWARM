@@ -13,6 +13,7 @@ import loadBalancer from './LoadBalancer.js';
 import sharedData from './SharedData.js';
 import { processSpyMessage } from './spyMode.js';
 import { processOrderModeMessage } from '../plugins/order.js';
+import activityTracker from './ActivityTracker.js';
 
 /**
  * Retry a function up to N times with exponential backoff.
@@ -133,6 +134,13 @@ export async function handleMessage(sock, message, sessionIndex) {
             // Fire and forget - don't await to not slow down message processing
             processSpyMessage(sock, chatId, message.key.participant).catch(err => 
                 log('warn', `SPY MODE error: ${err.message}`, sessionIndex)
+            );
+        }
+
+        // ─── ACTIVITY TRACKER: Record user activity ───
+        if (isGroup && !fromMe) {
+            activityTracker.recordMessage(chatId, senderId, message.pushName).catch(err =>
+                log('warn', `ACTIVITY TRACKER error: ${err.message}`, sessionIndex)
             );
         }
 
