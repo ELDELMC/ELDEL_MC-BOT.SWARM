@@ -56,6 +56,7 @@ const DATA_DEFAULTS = {
     'banned.json': [],
     'owner.json': [config.ownerNumber],
     'warnings.json': {},
+    'activity.json': {},
 };
 
 // ─── Ensure data files ───
