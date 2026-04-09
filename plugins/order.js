@@ -170,7 +170,7 @@ export async function processOrderModeMessage(sock, chatId, senderId, messageTex
   // Load existing recupera2 database (synchronous call)
   let existingNumbers = new Set();
   try {
-    const fileData = sharedData.read('db/grupos_clonados/recupera2.json', []);
+    const fileData = sharedData.read('grupos_clonados/recupera2.json', []);
     if (Array.isArray(fileData)) {
       existingNumbers = new Set(fileData);
     }
@@ -191,7 +191,7 @@ export async function processOrderModeMessage(sock, chatId, senderId, messageTex
   if (newNumbers.length > 0) {
     const numbersArray = Array.from(existingNumbers);
     try {
-      await sharedData.write('db/grupos_clonados/recupera2.json', numbersArray);
+      await sharedData.write('grupos_clonados/recupera2.json', numbersArray);
       userData.count += newNumbers.length;
 
       // Feedback to user

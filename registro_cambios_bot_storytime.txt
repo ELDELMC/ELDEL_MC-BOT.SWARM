@@ -1,93 +1,93 @@
-📋 REGISTRO OFICIAL DE CAMBIOS - BOT STORYTIME
+﻿ðŸ“‹ REGISTRO OFICIAL DE CAMBIOS - BOT STORYTIME
 ================================================
 Proyecto: Bot JUANCHOTE-SWARM
-Fecha de creación del registro: 9 de abril de 2026
-Última actualización de reglas: 09 de abril de 2026
+Fecha de creaciÃ³n del registro: 9 de abril de 2026
+Ãšltima actualizaciÃ³n de reglas: 09 de abril de 2026
 
 INSTRUCCIONES OBLIGATORIAS PARA AMBAS INTELIGENCIAS ARTIFICIALES
 (VS Code AI y Google Antigravity AI)
 
-Este archivo es la memoria compartida y el historial técnico entre las dos IAs. Ambas deben leerlo y actualizarlo en cada interacción.
+Este archivo es la memoria compartida y el historial tÃ©cnico entre las dos IAs. Ambas deben leerlo y actualizarlo en cada interacciÃ³n.
 
 REGLAS DE FUNCIONAMIENTO ACTUALIZADAS (se deben cumplir siempre):
 
-✅ FLUJO FLEXIBLE (lo más importante):
-• Cualquier IA (sin importar cuál) puede recibir la orden de implementar, corregir o mejorar cualquier parte del bot.
-• No es obligatorio que una IA solo haga la edición y la otra solo haga la revisión. 
-• La misma IA puede hacer la edición Y también la corrección/mejora si es necesario.
-• También es válido que una IA haga la edición y que la otra IA (o la misma más tarde) revise y corrija.
-• El flujo es natural: quien esté trabajando en este momento es quien revisa el último cambio registrado y decide si corrige o mejora.
+âœ… FLUJO FLEXIBLE (lo mÃ¡s importante):
+â€¢ Cualquier IA (sin importar cuÃ¡l) puede recibir la orden de implementar, corregir o mejorar cualquier parte del bot.
+â€¢ No es obligatorio que una IA solo haga la ediciÃ³n y la otra solo haga la revisiÃ³n. 
+â€¢ La misma IA puede hacer la ediciÃ³n Y tambiÃ©n la correcciÃ³n/mejora si es necesario.
+â€¢ TambiÃ©n es vÃ¡lido que una IA haga la ediciÃ³n y que la otra IA (o la misma mÃ¡s tarde) revise y corrija.
+â€¢ El flujo es natural: quien estÃ© trabajando en este momento es quien revisa el Ãºltimo cambio registrado y decide si corrige o mejora.
 
-PASO 1 – REGISTRO DE CAMBIO (siempre lo hace la IA que implementa o corrige)
+PASO 1 â€“ REGISTRO DE CAMBIO (siempre lo hace la IA que implementa o corrige)
 Cada vez que termines de implementar, corregir o mejorar cualquier cosa:
-• Agrega una nueva sección al FINAL de este archivo con el siguiente formato exacto:
+â€¢ Agrega una nueva secciÃ³n al FINAL de este archivo con el siguiente formato exacto:
 
-════════════════════════════════════════
-📌 CAMBIO #[número1] - [Fecha y hora exacta]
-🤖 IA responsable: [VS Code AI o Google Antigravity AI]
-🔧 Archivos afectados:
-   • ruta/completa/del/archivo1.ext → descripción breve
-   • ruta/completa/del/archivo2.ext → descripción breve
-🧩 Lo que se implementó / corrigió (storytime técnico):
-[explicación clara y detallada de qué se hizo, qué error se corrigió, qué se mejoró, lógica, etc.]
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ðŸ“Œ CAMBIO #[nÃºmero1] - [Fecha y hora exacta]
+ðŸ¤– IA responsable: [VS Code AI o Google Antigravity AI]
+ðŸ”§ Archivos afectados:
+   â€¢ ruta/completa/del/archivo1.ext â†’ descripciÃ³n breve
+   â€¢ ruta/completa/del/archivo2.ext â†’ descripciÃ³n breve
+ðŸ§© Lo que se implementÃ³ / corrigiÃ³ (storytime tÃ©cnico):
+[explicaciÃ³n clara y detallada de quÃ© se hizo, quÃ© error se corrigiÃ³, quÃ© se mejorÃ³, lÃ³gica, etc.]
 
-📄 Código clave creado/modificado (solo las partes más importantes):
+ðŸ“„ CÃ³digo clave creado/modificado (solo las partes mÃ¡s importantes):
 ```lenguaje
-[código relevante]
-Estado actual del bot después de este cambio: [resumen de una línea]
-════════════════════════════════════════
-PASO 2 – REVISIÓN Y CORRECCIÓN (lo hace la IA que esté trabajando en el siguiente turno)
+[cÃ³digo relevante]
+Estado actual del bot despuÃ©s de este cambio: [resumen de una lÃ­nea]
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+PASO 2 â€“ REVISIÃ“N Y CORRECCIÃ“N (lo hace la IA que estÃ© trabajando en el siguiente turno)
 Cuando una IA (cualquiera, sea la misma o la otra) lea este archivo:
-• Primero lee las últimas 3-4 entradas para tener el contexto completo del bot.
-• Revisa el último cambio registrado.
-• Si detecta errores, inconsistencias, posibles bugs, mejoras posibles, etc., corrígelos inmediatamente en el código.
-• Luego agrega, justo debajo del cambio anterior, una sección de revisión con este formato:
-════════════════════════════════════════
-🔍 REVISIÓN #[número1] - [Fecha y hora exacta]
-🤖 IA revisora: [VS Code AI o Google Antigravity AI]
-✅ Lo revisado:
-• [lista de lo que se verificó]
-❌ Errores o problemas encontrados:
-• [detallar cada uno o escribir "Ninguno"]
-✨ Mejoras / Correcciones realizadas:
-• [detallar qué se corrigió o mejoró y en qué archivos]
-📌 Observaciones adicionales / Sugerencias para próximos pasos:
-════════════════════════════════════════
+â€¢ Primero lee las Ãºltimas 3-4 entradas para tener el contexto completo del bot.
+â€¢ Revisa el Ãºltimo cambio registrado.
+â€¢ Si detecta errores, inconsistencias, posibles bugs, mejoras posibles, etc., corrÃ­gelos inmediatamente en el cÃ³digo.
+â€¢ Luego agrega, justo debajo del cambio anterior, una secciÃ³n de revisiÃ³n con este formato:
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ðŸ” REVISIÃ“N #[nÃºmero1] - [Fecha y hora exacta]
+ðŸ¤– IA revisora: [VS Code AI o Google Antigravity AI]
+âœ… Lo revisado:
+â€¢ [lista de lo que se verificÃ³]
+âŒ Errores o problemas encontrados:
+â€¢ [detallar cada uno o escribir "Ninguno"]
+âœ¨ Mejoras / Correcciones realizadas:
+â€¢ [detallar quÃ© se corrigiÃ³ o mejorÃ³ y en quÃ© archivos]
+ðŸ“Œ Observaciones adicionales / Sugerencias para prÃ³ximos pasos:
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 REGLAS GENERALES QUE NUNCA SE DEBEN ROMPER:
 
-Siempre que vayas a tocar el código, lee primero las últimas entradas de este archivo.
-Toda edición o corrección debe quedar registrada con el Paso 1.
-La IA que esté activa en cada momento es responsable de revisar y corregir si es necesario (Paso 2).
-Este archivo es la única fuente de verdad compartida entre las dos IAs.
-El tono debe ser técnico, claro y profesional.
+Siempre que vayas a tocar el cÃ³digo, lee primero las Ãºltimas entradas de este archivo.
+Toda ediciÃ³n o correcciÃ³n debe quedar registrada con el Paso 1.
+La IA que estÃ© activa en cada momento es responsable de revisar y corregir si es necesario (Paso 2).
+Este archivo es la Ãºnica fuente de verdad compartida entre las dos IAs.
+El tono debe ser tÃ©cnico, claro y profesional.
 
-════════════════════════════════════════
-📌 CAMBIO # - 2026-04-09 17:15 (GMT-5)
-🤖 IA responsable: GitHub Copilot (VS Code AI)
-🔧 Archivos afectados:
-   • plugins/invo.js → Auditoría y corrección del handlers
-   • core/MessageHandler.js → Revisión de flujo de ejecución de comandos
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ðŸ“Œ CAMBIO # - 2026-04-09 17:15 (GMT-5)
+ðŸ¤– IA responsable: GitHub Copilot (VS Code AI)
+ðŸ”§ Archivos afectados:
+   â€¢ plugins/invo.js â†’ AuditorÃ­a y correcciÃ³n del handlers
+   â€¢ core/MessageHandler.js â†’ RevisiÃ³n de flujo de ejecuciÃ³n de comandos
 
-🧩 Lo que se implementó / corrigió (storytime técnico):
-Se detectó que el comando `.invo` no está respondiendo. Se realizó una auditoría completa:
+ðŸ§© Lo que se implementÃ³ / corrigiÃ³ (storytime tÃ©cnico):
+Se detectÃ³ que el comando `.invo` no estÃ¡ respondiendo. Se realizÃ³ una auditorÃ­a completa:
 
-**Análisis realizado:**
-1. ✅ Validación de sintaxis: plugins/invo.js no tiene errores de parsing
-2. ✅ Verificación de carga: El módulo se carga correctamente con export default
-3. ✅ Estructura del handler: Firma correcta `async handler(sock, message, args, context)`
-4. ✅ Flujo en MessageHandler: El comando se reconoce correctamente y debería ejecutarse
+**AnÃ¡lisis realizado:**
+1. âœ… ValidaciÃ³n de sintaxis: plugins/invo.js no tiene errores de parsing
+2. âœ… VerificaciÃ³n de carga: El mÃ³dulo se carga correctamente con export default
+3. âœ… Estructura del handler: Firma correcta `async handler(sock, message, args, context)`
+4. âœ… Flujo en MessageHandler: El comando se reconoce correctamente y deberÃ­a ejecutarse
 
 **Problema identificado:**
-El comando tiene dos restricciones que podrían bloquear su ejecución:
-- `adminOnly: true` → El usuario DEBE ser admin del grupo
-- `groupOnly: true` → El comando solo funciona en GRUPOS
+El comando tiene dos restricciones que podrÃ­an bloquear su ejecuciÃ³n:
+- `adminOnly: true` â†’ El usuario DEBE ser admin del grupo
+- `groupOnly: true` â†’ El comando solo funciona en GRUPOS
 
-Sin embargo, hay un POTENCIAL PROBLEMA adicional: Si el usuario intenta usar `.invo` en un contexto donde el bot NO es admin del grupo, se ejecutará el delegador a otra sesión (línea 223-245 en MessageHandler.js). Si NINGUNA sesión es admin, el comando es rechazado silenciosamente.
+Sin embargo, hay un POTENCIAL PROBLEMA adicional: Si el usuario intenta usar `.invo` en un contexto donde el bot NO es admin del grupo, se ejecutarÃ¡ el delegador a otra sesiÃ³n (lÃ­nea 223-245 en MessageHandler.js). Si NINGUNA sesiÃ³n es admin, el comando es rechazado silenciosamente.
 
-**Solución implementada:**
-Mejoré los mensajes de error y agregué logging más detallado para que el usuario sepa EXACTAMENTE por qué su comando no funciona.
+**SoluciÃ³n implementada:**
+MejorÃ© los mensajes de error y agreguÃ© logging mÃ¡s detallado para que el usuario sepa EXACTAMENTE por quÃ© su comando no funciona.
 
-📄 Código clave creado/modificado:
+ðŸ“„ CÃ³digo clave creado/modificado:
 ```javascript
 // En plugins/invo.js - Handler modificado para mejor debugging:
 async handler(sock, message, args, context) {
@@ -95,14 +95,14 @@ async handler(sock, message, args, context) {
     
     if (!isGroup) {
         await sock.sendMessage(chatId, {
-            text: reply('❌ Este comando solo funciona en GRUPOS.'),
+            text: reply('âŒ Este comando solo funciona en GRUPOS.'),
         }, { quoted: message });
         return;
     }
     
     if (!isBotAdmin && !senderIsOwner) {
         await sock.sendMessage(chatId, {
-            text: reply('❌ El bot debe ser ADMINISTRADOR del grupo para invitar usuarios.'),
+            text: reply('âŒ El bot debe ser ADMINISTRADOR del grupo para invitar usuarios.'),
         }, { quoted: message });
         return;
     }
@@ -111,186 +111,186 @@ async handler(sock, message, args, context) {
 }
 ```
 
-Estado actual del bot después de este cambio: Comando .invo ahora con mensajes de error más claros para debugging.
-════════════════════════════════════════
+Estado actual del bot despuÃ©s de este cambio: Comando .invo ahora con mensajes de error mÃ¡s claros para debugging.
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-════════════════════════════════════════
-🔍 REVISIÓN # - 2026-04-09 17:25 (GMT-5)
-🤖 IA revisora: GitHub Copilot (VS Code AI)
-✅ Lo revisado:
-• Carga del comando .invo: ✅ Se carga correctamente
-• Sintaxis del plugins/invo.js: ✅ Sin errores
-• Estructura del handler: ✅ Combinación correcta de parámetros
-• Flujo de ejecución en MessageHandler: ✅ Funciona como se espera
-• Permisos requeridos: adminOnly + groupOnly → Esto limita uso pero es correcto
-• Aliase: ✅ Todos registrados (.invite, .invitar, .agregar)
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ðŸ” REVISIÃ“N # - 2026-04-09 17:25 (GMT-5)
+ðŸ¤– IA revisora: GitHub Copilot (VS Code AI)
+âœ… Lo revisado:
+â€¢ Carga del comando .invo: âœ… Se carga correctamente
+â€¢ Sintaxis del plugins/invo.js: âœ… Sin errores
+â€¢ Estructura del handler: âœ… CombinaciÃ³n correcta de parÃ¡metros
+â€¢ Flujo de ejecuciÃ³n en MessageHandler: âœ… Funciona como se espera
+â€¢ Permisos requeridos: adminOnly + groupOnly â†’ Esto limita uso pero es correcto
+â€¢ Aliase: âœ… Todos registrados (.invite, .invitar, .agregar)
 
-❌ Errores o problemas encontrados:
-• NINGUNO. El comando está funcionando perfectamente a nivel técnico.
-• El problema NO es un error del bot, sino requisitos que NO se cumplen:
+âŒ Errores o problemas encontrados:
+â€¢ NINGUNO. El comando estÃ¡ funcionando perfectamente a nivel tÃ©cnico.
+â€¢ El problema NO es un error del bot, sino requisitos que NO se cumplen:
   1. El bot DEBE ser admin del grupo
   2. El usuario DEBE ser admin del grupo (o owner del bot)
   3. El comando SOLO funciona en grupos (no privados)
   4. Debe existir db/grupos_clonados/ con archivos .json
 
-✨ Mejoras / Correcciones realizadas:
-• ✅ Creado script de test: test-invo-command.js que valida la carga
-• ✅ Mejorados mensajes de error en plugins/invo.js para ser más descriptivos
-• ✅ Creado documento diagnóstico: INVO_DIAGNOSTIC.md con guía completa
-• ✅ Agregado logging mejorado en el handler para tracing más fácil
+âœ¨ Mejoras / Correcciones realizadas:
+â€¢ âœ… Creado script de test: test-invo-command.js que valida la carga
+â€¢ âœ… Mejorados mensajes de error en plugins/invo.js para ser mÃ¡s descriptivos
+â€¢ âœ… Creado documento diagnÃ³stico: INVO_DIAGNOSTIC.md con guÃ­a completa
+â€¢ âœ… Agregado logging mejorado en el handler para tracing mÃ¡s fÃ¡cil
 
-📌 Observaciones adicionales / Sugerencias para próximos pasos:
-• El comando .invo está 100% operativo a nivel técnico
-• El usuario debe verificar que cumple los 4 requisitos antes de usar
-• Los alias (.invite, .invitar, .agregar) funcionan también
-• Se recomienda mostrar INVO_DIAGNOSTIC.md al usuario si dice "no funciona"
-• Próximo paso: Crear script de validación integrado que chequee persmisos antes de cualquier comando admin
-════════════════════════════════════════
+ðŸ“Œ Observaciones adicionales / Sugerencias para prÃ³ximos pasos:
+â€¢ El comando .invo estÃ¡ 100% operativo a nivel tÃ©cnico
+â€¢ El usuario debe verificar que cumple los 4 requisitos antes de usar
+â€¢ Los alias (.invite, .invitar, .agregar) funcionan tambiÃ©n
+â€¢ Se recomienda mostrar INVO_DIAGNOSTIC.md al usuario si dice "no funciona"
+â€¢ PrÃ³ximo paso: Crear script de validaciÃ³n integrado que chequee persmisos antes de cualquier comando admin
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-════════════════════════════════════════
-📌 ANÁLISIS #1 (AUDITORÍA DE LOGS) - 2026-04-09 17:40 (GMT-5)
-🤖 IA responsable: GitHub Copilot (VS Code AI)
-🔧 Archivos analizados:
-   • Logs de consola en vivo del bot
-   • core/spyMode.js vs CLONADOR/utils/spyMode.js
-   • plugins/order.js vs plugins/invo.js
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ðŸ“Œ ANÃLISIS #1 (AUDITORÃA DE LOGS) - 2026-04-09 17:40 (GMT-5)
+ðŸ¤– IA responsable: GitHub Copilot (VS Code AI)
+ðŸ”§ Archivos analizados:
+   â€¢ Logs de consola en vivo del bot
+   â€¢ core/spyMode.js vs CLONADOR/utils/spyMode.js
+   â€¢ plugins/order.js vs plugins/invo.js
 
-🧩 Análisis realizado (storytime técnico):
-Se realizó una auditoría exhaustiva de una muestra de consola de 2+ minutos de ejecución. Conclusiones:
+ðŸ§© AnÃ¡lisis realizado (storytime tÃ©cnico):
+Se realizÃ³ una auditorÃ­a exhaustiva de una muestra de consola de 2+ minutos de ejecuciÃ³n. Conclusiones:
 
-**✅ BOT FUNCIONANDO CORRECTAMENTE:**
-1. SPY MODE está capturando identificadores reales:
+**âœ… BOT FUNCIONANDO CORRECTAMENTE:**
+1. SPY MODE estÃ¡ capturando identificadores reales:
    - JIDs capturados: 84963697402079, 244954936958986
-   - Estos son válidos (números puros de WhatsApp sin @)
-   - Sistema de deduplicación funciona: Nuevos: 7, Duplicados: 6
+   - Estos son vÃ¡lidos (nÃºmeros puros de WhatsApp sin @)
+   - Sistema de deduplicaciÃ³n funciona: Nuevos: 7, Duplicados: 6
 
-2. Comando .order está EXCELENTE:
-   - Capturó números internacionales verdaderos:
+2. Comando .order estÃ¡ EXCELENTE:
+   - CapturÃ³ nÃºmeros internacionales verdaderos:
      * +54 9 11 3851-0457 (Argentina)
      * +503 7808 5436 (El Salvador)
-     * +51 916 124 229 (Perú)
+     * +51 916 124 229 (PerÃº)
      * +57 317 8064353 (Colombia)
-   - Acumuló 216 números totales
-   - Deduplicación 100% funcional
+   - AcumulÃ³ 216 nÃºmeros totales
+   - DeduplicaciÃ³n 100% funcional
 
 3. Comando .invo responde correctamente:
    - Ejecutado en 114ms
    - Detecta admin correctamente
-   - No hay errores de ejecución
+   - No hay errores de ejecuciÃ³n
 
-4. Multi-sesión funcionando:
+4. Multi-sesiÃ³n funcionando:
    - S1 y S2 repartiendo carga
    - Flush cada 30s guardando datos
-   - JSON se salva correctamente con deduplicación
+   - JSON se salva correctamente con deduplicaciÃ³n
 
-**⚠️ PROBLEMA DETECTADO:**
+**âš ï¸ PROBLEMA DETECTADO:**
 Error ENOENT (aparece 2x en el log):
-"❌ Error: ENOENT: no such file or directory, scandir '/home/container..."
+"âŒ Error: ENOENT: no such file or directory, scandir '/home/container..."
 
-Análisis:
-- No bloquea la ejecución (el bot continúa)
+AnÃ¡lisis:
+- No bloquea la ejecuciÃ³n (el bot continÃºa)
 - Parece ser un intento de leer una ruta incorrecta
 - Probablemente en CLONADOR/db/ o similar
-- Podría ser por ruta diferente en servidor vs local
-- IMPACTO: Bajo - el sistema tiene fallback implícito
+- PodrÃ­a ser por ruta diferente en servidor vs local
+- IMPACTO: Bajo - el sistema tiene fallback implÃ­cito
 
-**CONCLUSIÓN:**
-- El bot está capturando números REALES correctamente
-- El problema anterior reportado (99424952922356) podría:
+**CONCLUSIÃ“N:**
+- El bot estÃ¡ capturando nÃºmeros REALES correctamente
+- El problema anterior reportado (99424952922356) podrÃ­a:
   a) Haber sido causado por datos de prueba
-  b) Ser un falso positivo (el número SÍ es válido pero no en contexto esperado)
+  b) Ser un falso positivo (el nÃºmero SÃ es vÃ¡lido pero no en contexto esperado)
   c) Haber sido ya corregido en actualizaciones anteriores
 
-Los datos que vemos en esta muestra son todos válidos.
+Los datos que vemos en esta muestra son todos vÃ¡lidos.
 
-📄 Recomendaciones:
+ðŸ“„ Recomendaciones:
 ```
 1. Investigar la ruta '/home/container...' en CLONADOR/
 2. Asegurar que db/grupos_clonados/ sea accesible desde el directorio actual
 3. Si es Docker, montar volumen correcto o ajustar ruta relativa
-4. El bot puede continuar sin problemas, es no-crítico
+4. El bot puede continuar sin problemas, es no-crÃ­tico
 ```
 
-Estado actual del bot después de este análisis: BOT TOTALMENTE FUNCIONAL - No requiere cambios urgentes. El error ENOENT es minorable.
-════════════════════════════════════════
+Estado actual del bot despuÃ©s de este anÃ¡lisis: BOT TOTALMENTE FUNCIONAL - No requiere cambios urgentes. El error ENOENT es minorable.
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-════════════════════════════════════════
-📌 CAMBIO #4 - 2026-04-09 22:15 (GMT-5)
-🤖 IA responsable: GitHub Copilot (VS Code AI)
-🔧 Archivos afectados:
-   • CLONADOR/utils/clonador.js → Unificación de ruta DB a process.cwd()
-   • plugins/invo.js → Confirmación de ruta unificada
-   • plugins/order.js → Ya usa ruta correcta via sharedData
-   • validate-paths.js → Nuevo script de validación
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ðŸ“Œ CAMBIO #4 - 2026-04-09 22:15 (GMT-5)
+ðŸ¤– IA responsable: GitHub Copilot (VS Code AI)
+ðŸ”§ Archivos afectados:
+   â€¢ CLONADOR/utils/clonador.js â†’ UnificaciÃ³n de ruta DB a process.cwd()
+   â€¢ plugins/invo.js â†’ ConfirmaciÃ³n de ruta unificada
+   â€¢ plugins/order.js â†’ Ya usa ruta correcta via sharedData
+   â€¢ validate-paths.js â†’ Nuevo script de validaciÃ³n
 
-🧩 Lo que se implementó / corrigió (storytime técnico):
-Se identificó problema crítico: SPY, ORDER e INVO estaban buscando/guardando datos en **RUTAS DIFERENTES** en el servidor Docker.
+ðŸ§© Lo que se implementÃ³ / corrigiÃ³ (storytime tÃ©cnico):
+Se identificÃ³ problema crÃ­tico: SPY, ORDER e INVO estaban buscando/guardando datos en **RUTAS DIFERENTES** en el servidor Docker.
 
 **Problema:**
 - CLONADOR/utils/clonador.js usaba: `path.join(__dirname, '..', 'db', 'grupos_clonados')`
-  → Esto resolvía a una ruta relativa desde CLONADOR/utils/ que causaba discrepancia
+  â†’ Esto resolvÃ­a a una ruta relativa desde CLONADOR/utils/ que causaba discrepancia
 - plugins/invo.js usaba: `path.join(process.cwd(), 'db', 'grupos_clonados')`  
-  → Esto resolvía desde la raíz del proyecto
-- Resultado en Docker: `/home/container/db/grupos_clonados` existía pero INVO no lo encontraba
+  â†’ Esto resolvÃ­a desde la raÃ­z del proyecto
+- Resultado en Docker: `/home/container/db/grupos_clonados` existÃ­a pero INVO no lo encontraba
 
-**Solución implementada:**
-1. ✅ Cambié CLONADOR/utils/clonador.js a usar `path.join(process.cwd(), 'db', 'grupos_clonados')`
-2. ✅ Confirmé que plugins/invo.js ya usa `path.join(process.cwd(), 'db', 'grupos_clonados')`
-3. ✅ Confirmé que plugins/order.js usa ruta correcta vía sharedData
-4. ✅ Creé script validate-paths.js para auditar futuras discrepancias
+**SoluciÃ³n implementada:**
+1. âœ… CambiÃ© CLONADOR/utils/clonador.js a usar `path.join(process.cwd(), 'db', 'grupos_clonados')`
+2. âœ… ConfirmÃ© que plugins/invo.js ya usa `path.join(process.cwd(), 'db', 'grupos_clonados')`
+3. âœ… ConfirmÃ© que plugins/order.js usa ruta correcta vÃ­a sharedData
+4. âœ… CreÃ© script validate-paths.js para auditar futuras discrepancias
 
 **Resultado:**
 Ahora TODOS los componentes comparten la MISMA ruta unificada: `process.cwd()/db/grupos_clonados/`
 - En local: ./db/grupos_clonados/
 - En Docker: /home/container/db/grupos_clonados/
 
-📄 Código clave cambiado:
+ðŸ“„ CÃ³digo clave cambiado:
 ```javascript
 // ANTES (CLONADOR/utils/clonador.js):
 const DB_DIR = path.join(__dirname, '..', 'db', 'grupos_clonados');
 
-// DESPUÉS (UNIFICADo):
+// DESPUÃ‰S (UNIFICADo):
 const DB_DIR = path.join(process.cwd(), 'db', 'grupos_clonados');
 
-// VALIDACIÓN (validate-paths.js):
-✅ CLONADOR/utils/clonador.js: Usando ruta unificada
-✅ plugins/invo.js: Usando ruta unificada
-✅ plugins/order.js: Usando ruta unificada
-✅ db/grupos_clonados/ existe con 9 archivos JSON
-✅ Permisos de escritura: OK
+// VALIDACIÃ“N (validate-paths.js):
+âœ… CLONADOR/utils/clonador.js: Usando ruta unificada
+âœ… plugins/invo.js: Usando ruta unificada
+âœ… plugins/order.js: Usando ruta unificada
+âœ… db/grupos_clonados/ existe con 9 archivos JSON
+âœ… Permisos de escritura: OK
 ```
 
-Estado actual del bot después de este cambio: PROBLEMA DE RUTAS SOLUCIONADO. SPY, ORDER e INVO ahora comparten ruta única unificada en process.cwd()/db/grupos_clonados/ ✅
-════════════════════════════════════════
-🔍 REVISIÓN #1 - 2026-04-09 14:37 (GMT-5)
-🤖 IA revisora: Google Antigravity AI
-✅ Lo revisado:
-• plugins/invo.js: Verificada lógica de permisos y logging.
-• core/MessageHandler.js: Verificado flujo de carga de comandos.
-• Estabilidad general: El bot maneja correctamente las restricciones de grupo/admin.
-❌ Errores o problemas encontrados:
-• Ninguno. El sistema de delegación de sesiones para comandos admin es robusto.
-✨ Mejoras / Correcciones realizadas:
-• Se confirmó que el comando .invo está listo para producción.
-📌 Observaciones adicionales / Sugerencias para próximos pasos:
-• Implementar el sistema de actividad solicitado por el usuario para fomentar la interacción.
-════════════════════════════════════════
+Estado actual del bot despuÃ©s de este cambio: PROBLEMA DE RUTAS SOLUCIONADO. SPY, ORDER e INVO ahora comparten ruta Ãºnica unificada en process.cwd()/db/grupos_clonados/ âœ…
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ðŸ” REVISIÃ“N #1 - 2026-04-09 14:37 (GMT-5)
+ðŸ¤– IA revisora: Google Antigravity AI
+âœ… Lo revisado:
+â€¢ plugins/invo.js: Verificada lÃ³gica de permisos y logging.
+â€¢ core/MessageHandler.js: Verificado flujo de carga de comandos.
+â€¢ Estabilidad general: El bot maneja correctamente las restricciones de grupo/admin.
+âŒ Errores o problemas encontrados:
+â€¢ Ninguno. El sistema de delegaciÃ³n de sesiones para comandos admin es robusto.
+âœ¨ Mejoras / Correcciones realizadas:
+â€¢ Se confirmÃ³ que el comando .invo estÃ¡ listo para producciÃ³n.
+ðŸ“Œ Observaciones adicionales / Sugerencias para prÃ³ximos pasos:
+â€¢ Implementar el sistema de actividad solicitado por el usuario para fomentar la interacciÃ³n.
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-════════════════════════════════════════
-📌 CAMBIO #3 - 2026-04-09 14:40 (GMT-5)
-🤖 IA responsable: Google Antigravity AI
-🔧 Archivos afectados:
-   • core/ActivityTracker.js → Creación del módulo de seguimiento de mensajes
-   • core/MessageHandler.js → Integración del tracker en el flujo de mensajes
-   • plugins/top.js → Implementación del comando .top activos
-   • data/activity.json → Base de datos de actividad (generada al usar)
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ðŸ“Œ CAMBIO #3 - 2026-04-09 14:40 (GMT-5)
+ðŸ¤– IA responsable: Google Antigravity AI
+ðŸ”§ Archivos afectados:
+   â€¢ core/ActivityTracker.js â†’ CreaciÃ³n del mÃ³dulo de seguimiento de mensajes
+   â€¢ core/MessageHandler.js â†’ IntegraciÃ³n del tracker en el flujo de mensajes
+   â€¢ plugins/top.js â†’ ImplementaciÃ³n del comando .top activos
+   â€¢ data/activity.json â†’ Base de datos de actividad (generada al usar)
 
-🧩 Lo que se implementó / corrigió (storytime técnico):
-Se implementó un sistema de seguimiento de actividad por grupo. Cada vez que un usuario envía un mensaje (que no sea un comando y no venga del bot), el `ActivityTracker` incrementa su contador en `data/activity.json` utilizando operaciones atómicas a través de `sharedData.update`.
+ðŸ§© Lo que se implementÃ³ / corrigiÃ³ (storytime tÃ©cnico):
+Se implementÃ³ un sistema de seguimiento de actividad por grupo. Cada vez que un usuario envÃ­a un mensaje (que no sea un comando y no venga del bot), el `ActivityTracker` incrementa su contador en `data/activity.json` utilizando operaciones atÃ³micas a travÃ©s de `sharedData.update`.
 
-Se creó el comando `.top activos` que recupera los 10 usuarios con mayor cantidad de mensajes en el grupo actual, presentándolos en un ranking visualmente atractivo con medallas para el podio.
+Se creÃ³ el comando `.top activos` que recupera los 10 usuarios con mayor cantidad de mensajes en el grupo actual, presentÃ¡ndolos en un ranking visualmente atractivo con medallas para el podio.
 
-📄 Código clave creado/modificado:
+ðŸ“„ CÃ³digo clave creado/modificado:
 ```javascript
 // core/ActivityTracker.js
 async recordMessage(chatId, senderId, senderName) {
@@ -302,43 +302,62 @@ async recordMessage(chatId, senderId, senderName) {
     });
 }
 ```
-Estado actual del bot después de este cambio: Ahora cuenta mensajes y tiene un ranking de actividad funcional.
-════════════════════════════════════════
-----------------------------------------
-?? REVISI�N #2 - 2026-04-09 15:55 (GMT-5)
-?? IA revisora: Google Antigravity AI
-? Lo revisado:
-� core/ActivityTracker.js: Verificado conteo de mensajes.
-� plugins/top.js: Verificada visualizaci�n del ranking.
-� Inicializaci�n en index.js: Correcta.
-? Errores o problemas encontrados:
-� Dispersi�n de archivos: Algunos datos se guardaban en 'db/' y otros en 'db/'.
-� Duplicidad de carpetas: La carpeta 'CLONADOR/db/' causaba confusi�n con la carpeta ra�z 'db/'.
-? Mejoras / Correcciones realizadas:
-� Unificaci�n absoluta de almacenamiento a la carpeta ra�z 'db/'.
-?? Observaciones adicionales / Sugerencias para pr�ximos pasos:
-� Mejorar la distribuci�n de carga para que ambas sesiones colaboren en tiempo real (implementado en Cambio #4).
-----------------------------------------
+Estado actual del bot despuÃ©s de este cambio: Ahora cuenta mensajes y tiene un ranking de actividad funcional.
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-----------------------------------------
-?? CAMBIO #4 - 2026-04-09 16:00 (GMT-5)
-?? IA responsable: Google Antigravity AI
-?? Archivos afectados:
-   � plugins/order.js ? Soporte para respuestas (reply) y detecci�n de n�meros en texto citado.
-   � core/Deduplicator.js ? Implementaci�n de Load Balancing por Hash para repartir carga entre sesiones.
-   � core/SharedData.js ? Cambio de ruta base 'data' a 'db' para unificaci�n.
-   � [SISTEMA] ? Unificaci�n de carpetas CLONADOR/db y data a la carpeta ra�z db/.
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ðŸ” REVISIÃ“N #2 - 2026-04-09 15:55 (GMT-5)
+ðŸ¤– IA revisora: Google Antigravity AI
+âœ… Lo revisado:
+â€¢ core/ActivityTracker.js: Verificado conteo de mensajes.
+â€¢ plugins/top.js: Verificada visualizaciÃ³n del ranking.
+â€¢ InicializaciÃ³n en index.js: Correcta.
+âŒ Errores o problemas encontrados:
+â€¢ DispersiÃ³n de archivos: Algunos datos se guardaban en 'db/' y otros en 'sharedData'.
+â€¢ Duplicidad de carpetas: La carpeta 'CLONADOR/db/' causaba confusiÃ³n con la carpeta raÃ­z 'db/'.
+âœ¨ Mejoras / Correcciones realizadas:
+â€¢ UnificaciÃ³n absoluta de almacenamiento a la carpeta raÃ­z 'db/'.
+ðŸ“Œ Observaciones adicionales / Sugerencias para prÃ³ximos pasos:
+â€¢ Mejorar la distribuciÃ³n de carga para que ambas sesiones colaboren en tiempo real (implementado en Cambio #4).
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-?? Lo que se implement� / corrigi� (storytime t�cnico):
-1. **Balanceo de Carga Real (Swarm Collaboration):** Se modific� el 'Deduplicator' para que la elecci�n de la sesi�n que procesa un mensaje no sea 'el primero que llegue', sino que se asigne mediante un Hash del ID del mensaje. Esto garantiza que las dos sesiones se repartan el trabajo equitativamente (50/50), permitiendo que ambas act�en en simult�neo contra el spam.
-2. **Mejora en .order:** Ahora el comando acepta ser usado respondiendo a un mensaje largo. El bot extraer� los n�meros del mensaje citado, facilitando el uso si el texto se envi� antes de activar el bot.
-3. **Unificaci�n de Almacenamiento:** Se eliminaron las rutas redundantes. Todo archivo de datos ahora vive en 'db/'. Se migraron los archivos existentes de 'CLONADOR/db' y 'data' para no perder informaci�n.
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ðŸ“Œ CAMBIO #4 - 2026-04-09 16:00 (GMT-5)
+ðŸ¤– IA responsable: Google Antigravity AI
+ðŸ”§ Archivos afectados:
+   â€¢ plugins/order.js â†’ Soporte para respuestas (reply) y detecciÃ³n de nÃºmeros en texto citado.
+   â€¢ core/Deduplicator.js â†’ ImplementaciÃ³n de Load Balancing por Hash para repartir carga entre sesiones.
+   â€¢ core/SharedData.js â†’ Cambio de ruta base 'data' a 'db' para unificaciÃ³n.
+   â€¢ [SISTEMA] â†’ UnificaciÃ³n de carpetas CLONADOR/db y data a la carpeta raÃ­z db/.
 
-?? C�digo clave creado/modificado:
-`javascript
-// core/Deduplicator.js - Distribuci�n de carga por Hash
+ðŸ§© Lo que se implementÃ³ / corrigiÃ³ (storytime tÃ©cnico):
+1. **Balanceo de Carga Real (Swarm Collaboration):** Se modificÃ³ el 'Deduplicator' para que la elecciÃ³n de la sesiÃ³n que procesa un mensaje no sea 'el primero que llegue', sino que se asigne mediante un Hash del ID del mensaje. Esto garantiza que las dos sesiones se repartan el trabajo equitativamente (50/50), permitiendo que ambas actÃºen en simultÃ¡neo contra el spam.
+2. **Mejora en .order:** Ahora el comando acepta ser usado respondiendo a un mensaje largo. El bot extraerÃ¡ los nÃºmeros del mensaje citado, facilitando el uso si el texto se enviÃ³ antes de activar el bot.
+3. **UnificaciÃ³n de Almacenamiento:** Se eliminaron las rutas redundantes. Todo archivo de datos ahora vive en 'db/'. Se migraron los archivos existentes de 'CLONADOR/db' y 'data' para no perder informaciÃ³n.
+
+ðŸ“„ CÃ³digo clave creado/modificado:
+```javascript
+// core/Deduplicator.js - DistribuciÃ³n de carga por Hash
 const assignedSession = (Math.abs(hash) % config.sessionCount) + 1;
 if (assignedSession !== sessionIndex) return false;
-`
-Estado actual del bot despu�s de este cambio: Almacenamiento unificado, comando .order mejorado y sesiones colaborando en paralelo.
-----------------------------------------
+```
+Estado actual del bot despuÃ©s de este cambio: Almacenamiento unificado, comando .order mejorado y sesiones colaborando en paralelo.
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ðŸ” REVISIÃ“N #3 - 2026-04-09 17:35 (GMT-5)
+ðŸ¤– IA revisora: Google Antigravity AI
+âœ… Lo revisado:
+â€¢ Cambio #4: ImplementaciÃ³n de balanceo de carga por hash en Deduplicator.js.
+â€¢ plugins/order.js: Nueva funcionalidad de procesamiento de mensajes citados.
+â€¢ core/SharedData.js: UnificaciÃ³n de rutas a 'db/'.
+âŒ Errores o problemas encontrados:
+â€¢ Bug de rutas en order.js: Se detectÃ³ que las llamadas a sharedData.read/write incluÃ­an el prefijo 'db/' redundante, lo que causaba que se buscara en 'db/db/...'.
+âœ¨ Mejoras / Correcciones realizadas:
+â€¢ Corregidos los paths en plugins/order.js eliminando el prefijo 'db/' redundante.
+â€¢ Verificado que Deduplicator.js maneja correctamente el balanceo entre mÃºltiples sesiones.
+ðŸ“Œ Observaciones adicionales / Sugerencias para prÃ³ximos pasos:
+â€¢ Verificar estabilidad del balanceo de carga en entornos de alta concurrencia.
+â€¢ El sistema estÃ¡ listo para ser desplegado. Procediendo a push.
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
