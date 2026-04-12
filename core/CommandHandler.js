@@ -98,42 +98,6 @@ class CommandHandler {
     }
 
     /**
-     * Normalize unicode characters to ASCII equivalents.
-     * Handles mathematical alphanumeric symbols and other unicode variations.
-     * @param {string} str
-     * @returns {string}
-     */
-    _normalizeUnicode(str) {
-        // Map of unicode mathematical alphanumeric symbols to ASCII
-        const unicodeMap = {
-            // Bold italic small letters (𝚊-𝚣)
-            '𝚊': 'a', '𝚋': 'b', '𝚌': 'c', '𝚍': 'd', '𝚎': 'e', '𝚏': 'f',
-            '𝚐': 'g', '𝚑': 'h', '𝚒': 'i', '𝚓': 'j', '𝚔': 'k', '𝚕': 'l',
-            '𝚖': 'm', '𝚗': 'n', '𝚘': 'o', '𝚙': 'p', '𝚚': 'q', '𝚛': 'r',
-            '𝚜': 's', '𝚝': 't', '𝚞': 'u', '𝚟': 'v', '𝚠': 'w', '𝚡': 'x',
-            '𝚢': 'y', '𝚣': 'z',
-            // Bold italic capital letters (𝚨-𝚩)
-            '𝚨': 'A', '𝚩': 'B', '𝚪': 'C', '𝚫': 'D', '𝚬': 'E', '𝚭': 'F',
-            '𝚮': 'G', '𝚯': 'H', '𝚰': 'I', '𝚱': 'J', '𝚲': 'K', '𝚳': 'L',
-            '𝚴': 'M', '𝚵': 'N', '𝚶': 'O', '𝚷': 'P', '𝚸': 'Q', '𝚹': 'R',
-            '𝚺': 'S', '𝚻': 'T', '𝚼': 'U', '𝚽': 'V', '𝚾': 'W', '𝚿': 'X',
-            '𝛀': 'Y', '𝛁': 'Z',
-            // Doublestruck (blackboard bold) examples
-            '𝕒': 'a', '𝕓': 'b', '𝕔': 'c', '𝕕': 'd', '𝕖': 'e', '𝕗': 'f',
-            // Fraktur examples
-            '𝔞': 'a', '𝔟': 'b', '𝔠': 'c', '𝔡': 'd', '𝔢': 'e', '𝔣': 'f',
-            // Script examples
-            '𝓪': 'a', '𝓫': 'b', '𝓬': 'c', '𝓭': 'd', '𝓮': 'e', '𝓯': 'f',
-        };
-
-        let normalized = '';
-        for (const char of str) {
-            normalized += unicodeMap[char] || char;
-        }
-        return normalized;
-    }
-
-    /**
      * Get a command by text input.
      * @param {string} text - Full message text (e.g., ".ban @user")
      * @param {string[]} prefixes
@@ -143,11 +107,7 @@ class CommandHandler {
         const usedPrefix = prefixes.find(p => text.startsWith(p));
         if (!usedPrefix) return null;
 
-        let cmdName = text.slice(usedPrefix.length).trim().split(/\s+/)[0].toLowerCase();
-        
-        // Normalize unicode characters (for users typing with special fonts)
-        cmdName = this._normalizeUnicode(cmdName);
-        
+        const cmdName = text.slice(usedPrefix.length).trim().split(/\s+/)[0].toLowerCase();
         if (!cmdName) return null;
 
         // Direct match
