@@ -143,7 +143,7 @@ class SessionManager {
         // Start sessions SEQUENTIALLY with aggressive delays to prevent conflicts
         for (let i = 1; i <= count; i++) {
             // Stagger session starts to avoid simultaneous connection conflicts
-            const delayBefore = i === 1 ? 0 : 90000; // S2: wait 90s after S1 connects
+            const delayBefore = i === 1 ? 0 : 120000; // S2: wait 120s after S1 connects (MEJORADO)
             if (delayBefore > 0) {
                 log('info', `Session ${i} iniciará en ${delayBefore / 1000}s (evitar conflictos)...`, i);
                 await delay(delayBefore);
@@ -262,17 +262,18 @@ class SessionManager {
                 shouldIgnoreJids: ['status@broadcast'],
                 getMessage: async () => ({ conversation: '' }),
                 
-                // ─── CONNECTION SETTINGS ───
+                // ─── CONNECTION SETTINGS (MEJORADO) ───
+                // Keep-alive reducido a 20s para detectar caídas más rápido
                 defaultQueryTimeoutMs: 120000,
-                connectTimeoutMs: 120000,
-                keepAliveIntervalMs: 30000,
+                connectTimeoutMs: 80000,         // ← Reducido de 120s a 80s
+                keepAliveIntervalMs: 20000,      // ← Reducido de 30s a 20s (MÁS AGRESIVO)
                 qrTimeout: 300000,
                 maxDiffSyncMs: 86400000,
                 
-                // ─── RETRY SETTINGS ───
+                // ─── RETRY SETTINGS (MEJORADO) ───
                 retryRequestDelayMs: 100,
                 maxMsgsInMemory: 50,
-                msgRetryCounterMax: 3,
+                msgRetryCounterMax: 5,           // ← Aumentado de 3 a 5 reintentos
             });
 
             // Store socket
