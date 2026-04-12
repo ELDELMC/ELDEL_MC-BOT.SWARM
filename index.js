@@ -14,6 +14,7 @@ import commandHandler from './core/CommandHandler.js';
 import sessionManager from './core/SessionManager.js';
 import sharedData from './core/SharedData.js';
 import errorReporter from './core/ErrorReporter.js';
+import database from './core/Database.js';
 import { startFlushCycle } from './core/spyMode.js';
 
 // ─── Global error handlers ───
@@ -187,6 +188,9 @@ setInterval(() => {
 // ─── MAIN ───
 async function main() {
     logBanner(config.sessionCount);
+
+    // Initialize Database
+    await database.connect();
 
     // Load commands
     await commandHandler.loadCommands();

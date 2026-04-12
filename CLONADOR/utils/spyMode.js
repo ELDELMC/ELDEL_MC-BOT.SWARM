@@ -2,18 +2,78 @@
  * 🕵️ MODO ESPÍA AUTOMÁTICO (Global y Permanente)
  * 
  * Intercepta los "sender" reales de los mensajes que viajan en TODOS los grupos 
- * de forma silenciosa y los vuelca al disco duro cada 30 segundos usando un 
- * único hilo global para máximo rendimiento.
+ * de forma silenciosa y los vuelca:
+ * 1. Al disco duro (JSON local)
+ * 2. A MongoDB Atlas (nube) cada 30 segundos usando un único hilo global
  * 
  * ✅ LOGS DETALLADOS EN CONSOLA para monitoreo en tiempo real.
+ * ✅ DE-DUPLICACIÓN automática en nube mediante índice único en phoneNumber
  */
 
 import { sanitizeGroupName, guardarGrupoClonado } from './clonador.js';
+import Contact from '../../core/models/Contact.js';
+import database from '../../core/Database.js';
 
 // Mapa global { groupJid: { name: "nombre_grupo", buffer: Set(), totalCaught: number } }
 const groupBuffers = new Map();
 let isLoopRunning = false;
-let globalStats = { totalScanned: 0, totalNew: 0, totalDuplicates: 0, totalFlushed: 0 };
+let globalStats = { totalScanned: 0, totalNew: 0, totalDuplicates: 0, totalFlushed: 0, mongoFlushed: 0, mongoErrors: 0 };
+
+/**
+ * Flush a MongoDB Atlas usando bulkWrite (upsert automático)
+ * De-duplicación garantizada por índice único en phoneNumber
+ */
+async function flushToMongoDB(groupJid, groupName, jidsArray) {
+  if (!database.isConnected) {
+    globalStats.mongoErrors++;
+    console.log(`⚠️  [MONGO SKIP] MongoDB no conectado, datos guardados solo en disco`);
+    return { success: false, inserted: 0, updated: 0 };
+  }
+
+  if (!jidsArray || jidsArray.length === 0) {
+    return { success: true, inserted: 0, updated: 0 };
+  }
+
+  try {
+    // Construir operaciones bulkWrite (upsert automático)
+    const operations = jidsArray.map(jid => {
+      const phoneNumber = jid.split('@')[0];
+      return {
+        updateOne: {
+          filter: { phoneNumber }, // Filtro por número único
+          update: {
+            $set: {
+              phoneNumber,
+              groupName,
+              groupJid,
+              extractedAt: new Date(),
+              status: 'active',
+              sourceSession: process.env.SESSION_ID || 1
+            }
+          },
+          upsert: true // Inserta si no existe, actualiza si existe (de-duplicación)
+        }
+      };
+    });
+
+    // Ejecutar bulk
+    const result = await Contact.bulkWrite(operations);
+    const totalOps = result.upsertedCount + result.modifiedCount;
+    globalStats.mongoFlushed += totalOps;
+
+    console.log(`☁️  [MONGO FLUSH] ${groupName}: ✅ ${result.upsertedCount} nuevos + ${result.modifiedCount} actualizados = ${totalOps} total`);
+    
+    return { 
+      success: true, 
+      inserted: result.upsertedCount, 
+      updated: result.modifiedCount 
+    };
+  } catch (err) {
+    globalStats.mongoErrors++;
+    console.error(`❌ [MONGO ERROR] Fallo en bulkWrite para "${groupName}": ${err.message}`);
+    return { success: false, inserted: 0, updated: 0 };
+  }
+}
 
 // Helpers
 async function ensureGroup(sock, groupJid) {
@@ -49,7 +109,7 @@ function startGlobalSpyLoop() {
   isLoopRunning = true;
   console.log(`\n🕵️ ╔═══════════════════════════════════════════════════╗`);
   console.log(`🕵️ ║   MODO ESPÍA AUTOMÁTICO — MOTOR INICIADO          ║`);
-  console.log(`🕵️ ║   Flush cada 30s | Recolección en tiempo real      ║`);
+  console.log(`🕵️ ║   Flush cada 30s | Disco + MongoDB ☁️             ║`);
   console.log(`🕵️ ╚═══════════════════════════════════════════════════╝\n`);
 
   setInterval(async () => {
@@ -63,14 +123,15 @@ function startGlobalSpyLoop() {
 
     // Siempre mostrar el heartbeat para que se vea que está vivo
     const now = new Date().toLocaleTimeString('es-CO');
-    console.log(`\n⏱️  [SPY HEARTBEAT] ${now} | Grupos: ${groupBuffers.size} | Pendientes: ${totalPending} | Escaneados: ${globalStats.totalScanned} | Nuevos: ${globalStats.totalNew} | Duplicados: ${globalStats.totalDuplicates} | Flushed total: ${globalStats.totalFlushed}`);
+    const mongoStatus = database.isConnected ? '☁️ ON' : '⚠️ OFF';
+    console.log(`\n⏱️  [SPY HEARTBEAT] ${now} | Grupos: ${groupBuffers.size} | Pendientes: ${totalPending} | Escaneados: ${globalStats.totalScanned} | Nuevos: ${globalStats.totalNew} | Duplicados: ${globalStats.totalDuplicates} | Disco: ${globalStats.totalFlushed} | Mongo: ${globalStats.mongoFlushed} | Errores Mongo: ${globalStats.mongoErrors} | ${mongoStatus}`);
 
     if (groupsWithData === 0) {
       console.log(`💤 [SPY FLUSH] Nada pendiente por guardar. Esperando actividad...`);
       return;
     }
 
-    console.log(`📡 [SPY FLUSH] ── Volcando ${totalPending} contactos de ${groupsWithData} grupo(s) al disco ──`);
+    console.log(`📡 [SPY FLUSH] ── Volcando ${totalPending} contactos de ${groupsWithData} grupo(s) (disco + nube) ──`);
 
     for (const [groupJid, data] of groupBuffers.entries()) {
       if (data.name && data.buffer.size > 0) {
@@ -79,13 +140,19 @@ function startGlobalSpyLoop() {
         
         console.log(`   💾 ${data.name}: ${jidsToSave.length} contactos → [${numbers.slice(0, 5).join(', ')}${numbers.length > 5 ? ` ...+${numbers.length - 5} más` : ''}]`);
         
-        await guardarGrupoClonado(data.name, jidsToSave).catch(e => console.error(`   ❌ Error guardando ${data.name}:`, e.message));
+        // Guardar a disco (método original)
+        await guardarGrupoClonado(data.name, jidsToSave).catch(e => console.error(`   ❌ Error guardando en disco "${data.name}":`, e.message));
+        
+        // Guardar a MongoDB (NUEVO - integración CAMBIO #9)
+        if (database.isConnected) {
+          await flushToMongoDB(groupJid, data.name, jidsToSave);
+        }
         
         globalStats.totalFlushed += jidsToSave.length;
         data.buffer.clear();
       }
     }
-    console.log(`✅ [SPY FLUSH] ── Volcado completado ──\n`);
+    console.log(`✅ [SPY FLUSH] ── Volcado completado (disco + nube) ──\n`);
   }, 30000);
 }
 
@@ -158,17 +225,33 @@ async function processSpyMessage(sock, groupJid, senderJid) {
  */
 async function triggerForceFlush(groupJid) {
   const data = groupBuffers.get(groupJid);
-  if (!data || !data.name) return { success: false, atrapados: 0, groupName: '' };
+  if (!data || !data.name) return { success: false, atrapados: 0, groupName: '', mongoStatus: 'N/A' };
   
   const atrapados = data.buffer.size;
   if (atrapados > 0) {
     const jidsToSave = Array.from(data.buffer);
     console.log(`⚡ [SPY FORCE FLUSH] Guardando ${atrapados} contactos de "${data.name}" por petición manual.`);
+    
+    // Guardar a disco
     await guardarGrupoClonado(data.name, jidsToSave);
     globalStats.totalFlushed += atrapados;
+    
+    // Guardar a MongoDB
+    let mongoResult = { success: false };
+    if (database.isConnected) {
+      mongoResult = await flushToMongoDB(groupJid, data.name, jidsToSave);
+    }
+    
     data.buffer.clear();
+    
+    return { 
+      success: true, 
+      atrapados, 
+      groupName: data.name,
+      mongoStatus: mongoResult.success ? `${mongoResult.inserted}↑ ${mongoResult.updated}→` : '❌'
+    };
   }
-  return { success: true, atrapados, groupName: data.name };
+  return { success: true, atrapados: 0, groupName: data.name, mongoStatus: 'N/A' };
 }
 
 /**
