@@ -1638,6 +1638,59 @@ MessageTypes fue removido o renombrado en versiones recientes de Baileys.
 
 ---
 
+---
+
+### GUÍA: Encontrar IP Correcta para MongoDB Whitelist
+
+**Problema:** boxmineworld.com usa Cloudflare (CDN), por lo que el DNS resuelve a IPs de Cloudflare, no a tu servidor real.
+
+**IPs de Cloudflare (NO son las de tu servidor):**
+```
+IPv4: 104.21.35.248
+IPv4: 172.67.181.194
+IPv6: 2606:4700:3036::6815:23f8
+IPv6: 2606:4700:3031::ac43:b5c2
+```
+
+**⚠️ IMPORTANTE:** Agregar estas IPs puede NO funcionar. Necesitas la IP de salida real del servidor.
+
+**Paso 1: Obtener IP real del servidor**
+
+Ejecuta en la consola de boxmineworld.com:
+```bash
+curl https://ifconfig.me
+```
+
+**Paso 2: Ejemplo de salida:**
+```
+203.45.67.89
+```
+
+**Paso 3: Agregar a MongoDB Atlas:**
+1. Ir a: https://cloud.mongodb.com/
+2. Cluster → Network Access → IP Whitelist
+3. Add IP Address → Pegar `203.45.67.89`
+4. Comment: `boxmineworld.com server`
+5. Confirm
+
+**Paso 4: Verificar**
+```bash
+npm start
+```
+
+Debería ver:
+```
+✅ Connected to MongoDB Atlas successfully! ☁️
+```
+
+**Alternativa si IP es dinámica:**
+Si el servidor tiene IP dinámica (cambia cada reinicio):
+```
+0.0.0.0/0  ⚠️ Menos seguro pero funciona
+```
+
+O mejor: Configurar variable de entorno `MONGODB_IP_WHITELIST` en box minecraft para que se actualice automáticamente.
+
 **Última actualización de Troubleshooting:** 12 de abril de 2026 00:45 (GMT-5)  
 **IA responsable:** GitHub Copilot  
 **Estado:** ✅ ACTIVO Y EN USO
