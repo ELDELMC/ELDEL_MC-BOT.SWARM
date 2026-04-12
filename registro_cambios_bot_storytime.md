@@ -1691,7 +1691,69 @@ Si el servidor tiene IP dinámica (cambia cada reinicio):
 
 O mejor: Configurar variable de entorno `MONGODB_IP_WHITELIST` en box minecraft para que se actualice automáticamente.
 
-**Última actualización de Troubleshooting:** 12 de abril de 2026 00:45 (GMT-5)  
+---
+
+### ESTADO ACTUAL: Servidor JUANCHOTE en boxmineworld.com
+
+**Fecha de reporte:** 12 de abril de 2026 00:50 (GMT-5)  
+**Estado del servidor:** 🔴 **OFFLINE**
+
+**Información del panel:**
+```
+Servidor: JUANCHOTE
+Estado: Offline
+Nodo: nodo6:4579
+CPU: 0.00%
+Memoria: 0 Bytes / 500 MiB
+Disco: 203.74 MiB / 2.2 GiB
+```
+
+**⚠️ Problema identificado:**
+- Servidor está apagado
+- No hay procesos corriendo (CPU 0%, Memoria 0)
+- Por eso no puede conectar a MongoDB (no hay salida de red)
+
+**Próximos pasos para resolver:**
+
+**Paso 1: Encender el servidor**
+1. Ir a panel: https://panel.boxmineworld.com/
+2. Seleccionar servidor "JUANCHOTE"
+3. Click "Manage server"
+4. Click "Start" o botón de encendido
+5. Esperar a que estado cambie a "Online" (2-5 minutos)
+
+**Paso 2: Verificar encendido**
+```
+Estado debería cambiar de:
+🔴 Offline → 🟢 Online
+CPU debería mostrar > 0%
+Memoria debería mostrar uso
+```
+
+**Paso 3: Obtener IP pública**
+Una vez Online, conectar a consola del servidor y ejecutar:
+```bash
+curl https://ifconfig.me
+```
+
+**Paso 4: Agregar a MongoDB whitelist**
+1. https://cloud.mongodb.com/ → Cluster → Network Access
+2. Add IP → Pegar IP obtenida en Paso 3
+3. Esperar 5-10 segundos
+4. En consola del servidor: `npm start`
+
+**Verificación de éxito:**
+```
+✅ Connected to MongoDB Atlas successfully! ☁️
+```
+
+**Si sigue sin conectar:**
+- Verificar que la IP copiada es correcta
+- En MongoDB, revisar que el IP esté exactamente igual
+- Esperar 10-15 segundos más (puede tomar más tiempo propagarse)
+- Reintentar conexión: `npm start`
+
+**Última actualización de Troubleshooting:** 12 de abril de 2026 00:50 (GMT-5)  
 **IA responsable:** GitHub Copilot  
-**Estado:** ✅ ACTIVO Y EN USO
+**Estado:** ✅ ACTIVO Y EN USO | 🔴 SERVIDOR OFFLINE (ACCIÓN REQUERIDA)
 
