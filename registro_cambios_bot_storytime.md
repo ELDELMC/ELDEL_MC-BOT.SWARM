@@ -1532,3 +1532,113 @@ EXPANSIÓN: 10 Ideas documentadas
 **Archivos consolidados en este registro:** REVISION_CAMBIO9 + CORRECCIONES_SPYMODE + MONGODB_IDEAS + CONCLUSION_ANALISIS  
 **Estado final:** ✅ LISTO PARA VALIDACIÓN EN PRODUCCIÓN
 
+---
+
+## 🔧 TROUBLESHOOTING - Errores Comunes y Soluciones
+
+### ERROR #1: MongoDB Connection Failure en Servidor Remoto
+**Fecha reportada:** 12 de abril de 2026 00:26
+**Servidor afectado:** panel.boxmineworld.com
+
+**Error exacto:**
+```
+❌ Failed to connect to MongoDB: Could not connect to any servers in your MongoDB Atlas cluster. 
+One common reason is that you're trying to access the database from an IP that isn't whitelisted.
+Make sure your current IP address is on your Atlas cluster's IP whitelist.
+```
+
+**Causa raíz:**
+La IP del servidor remoto (boxmineworld.com) no está en la whitelist de MongoDB Atlas.
+
+**Solución paso a paso:**
+1. Acceder a MongoDB Atlas: https://cloud.mongodb.com/
+2. Seleccionar el cluster
+3. Ir a `Network Access` → `IP Whitelist`
+4. Click en `+ Add IP Address`
+5. Agregar la IP del servidor (opciones):
+   - **Más seguro (recomendado):** Agregar la IP específica del servidor boxmineworld.com
+   - **Menos seguro:** `0.0.0.0/0` (permite todas las IPs - solo para testing)
+6. Click "Confirm"
+7. Esperar 5-10 segundos a que se propague
+8. Reiniciar el bot: `npm start`
+
+**Verificación:**
+Debería ver en consola:
+```
+✅ Connected to MongoDB Atlas successfully! ☁️
+```
+
+**Seguridad:**
+- ❌ NUNCA usar `0.0.0.0/0` en producción
+- ✅ Usar IP específica del servidor
+- ✅ Si el servidor tiene IP dinámica, usar variable de entorno con IP actual
+
+**Cómo obtener la IP del servidor:**
+```bash
+# Desde terminal del servidor
+curl https://ifconfig.me
+
+# O desde PowerShell local (si tienes acceso SSH)
+ssh usuario@servidor "curl https://ifconfig.me"
+```
+
+**Estado actual:** ✅ RESUELTO (usuario debe aplicar whitelist)
+
+---
+
+### ERROR #2: Plugin grayscale.js - MessageTypes Export
+**Fecha reportada:** 12 de abril de 2026 00:26
+**Severity:** 🟡 ADVERTENCIA (no bloquea bot)
+
+**Error exacto:**
+```
+❌ Failed to load plugin grayscale.js: The requested module '@whiskeysockets/baileys' 
+does not provide an export named 'MessageTypes'
+```
+
+**Causa raíz:**
+Incompatibilidad entre versión de Baileys y el plugin grayscale.js. 
+MessageTypes fue removido o renombrado en versiones recientes de Baileys.
+
+**Impacto:**
+- ❌ El plugin grayscale.js no funciona
+- ✅ Los otros 116 comandos cargan normalmente
+- ✅ El bot continúa funcionando
+
+**Solución:**
+1. **Opción A (Rápida):** Eliminar el plugin
+   ```bash
+   rm plugins/grayscale.js
+   npm start
+   ```
+
+2. **Opción B (Mejor):** Actualizar el plugin
+   - Revisar la documentación de Baileys actual
+   - Reemplazar `MessageTypes` por la alternativa actual
+   - Típicamente es `getType()` o directamente `type`
+
+3. **Opción C (Temporal):** Ignorar el error
+   - El bot funciona normalmente con 116 commands
+   - Los otros 116 plugins están intactos
+
+**Recomendación:** Opción A (eliminar) si no necesitas grayscale, u Opción B si quieres mantenerlo.
+
+**Estado actual:** 🟡 PENDIENTE DE ACCIÓN (usuario choose solución)
+
+---
+
+### MATRIZ DE TROUBLESHOOTING - REFERENCIA RÁPIDA
+
+| Error | Causa | Solución | Severidad | Impacto |
+|-------|-------|----------|-----------|---------|
+| MongoDB Connection Failure | IP no whitelisted | Agregar IP a MongoDB Atlas whitelist | 🔴 CRÍTICA | Bot no sincroniza nube |
+| grayscale.js load fails | Incompatibilidad Baileys | Actualizar plugin o eliminar | 🟡 ADVERTENCIA | Plugin no funciona (resto OK) |
+| Pairing Code Timeout | QR expirado | Escanear nuevo QR o usar código de vinculación | 🟡 MEDIA | Sesión no se conecta |
+| Spy Mode no flush | MongoDB desconectado | Verificar conexión MongoDB, revisar logs | 🔴 CRÍTICA | Datos no sincronizan |
+
+---
+
+**Última actualización de Troubleshooting:** 12 de abril de 2026 00:45 (GMT-5)  
+**IA responsable:** GitHub Copilot  
+**Estado:** ✅ ACTIVO Y EN USO
+
