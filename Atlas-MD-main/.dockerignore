@@ -1,6 +1,0 @@
-node_modules
-.git
-.env
-atlas.pid
-atlas.log
-*.log
