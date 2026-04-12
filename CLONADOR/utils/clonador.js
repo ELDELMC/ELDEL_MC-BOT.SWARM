@@ -18,14 +18,24 @@ const fsp = fs.promises;
 const DB_DIR = path.join(process.cwd(), 'db', 'grupos_clonados');
 
 /**
- * Sanitiza el nombre del grupo para usarlo como nombre de archivo
+ * Codifica el nombre del grupo con URL encoding para usarlo como nombre de archivo
+ * Preserva todos los caracteres especiales (emojis, caracteres acentuados, etc.)
  */
 function sanitizeGroupName(subject) {
-  return subject
-    .replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ\s-]/g, '_')
-    .trim()
-    .replace(/\s+/g, '_')
-    .toLowerCase();
+  // Usar URL encoding para preservar caracteres especiales
+  const encoded = encodeURIComponent(subject);
+  return encoded;
+}
+
+/**
+ * Decodifica el nombre del grupo desde el archivo
+ */
+function desanitizeGroupName(encoded) {
+  try {
+    return decodeURIComponent(encoded);
+  } catch (e) {
+    return encoded; // Si falla, retornar como está
+  }
 }
 
 /**
@@ -75,15 +85,15 @@ async function guardarGrupoClonado(nombreSanitizado, nuevosJids) {
 
 /**
  * Lista todos los archivos de grupos clonados disponibles.
- * @returns {string[]} Array de nombres (sin .json)
+ * @returns {string[]} Array de nombres originales (decodificados)
  */
 async function listarGruposClonados() {
   await ensureDbDir();
   try {
     const files = await fsp.readdir(DB_DIR);
     return files
-      .filter(f => f.endsWith('.json'))
-      .map(f => f.replace('.json', ''));
+      .filter(f => f.endsWith('.json') && f !== '_metadata.json')
+      .map(f => desanitizeGroupName(f.replace('.json', '')));
   } catch (e) {
     return [];
   }
@@ -96,8 +106,8 @@ function listarGruposClonadosSync() {
   try {
     if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
     return fs.readdirSync(DB_DIR)
-      .filter(f => f.endsWith('.json'))
-      .map(f => f.replace('.json', ''));
+      .filter(f => f.endsWith('.json') && f !== '_metadata.json')
+      .map(f => desanitizeGroupName(f.replace('.json', '')));
   } catch (e) {
     return [];
   }
@@ -105,6 +115,7 @@ function listarGruposClonadosSync() {
 
 export {
   sanitizeGroupName,
+  desanitizeGroupName,
   leerGrupoClonado,
   guardarGrupoClonado,
   listarGruposClonados,

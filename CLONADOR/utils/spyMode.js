@@ -10,14 +10,54 @@
  * ✅ DE-DUPLICACIÓN automática en nube mediante índice único en phoneNumber
  */
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { sanitizeGroupName, guardarGrupoClonado } from './clonador.js';
 import Contact from '../../core/models/Contact.js';
 import database from '../../core/Database.js';
 
-// Mapa global { groupJid: { name: "nombre_grupo", buffer: Set(), totalCaught: number } }
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const fsp = fs.promises;
+const DB_DIR = path.join(process.cwd(), 'db', 'grupos_clonados');
+
+// Mapa global { groupJid: { name: "nombre_grupo", realName: "nombre_sin_sanitizar", buffer: Set(), totalCaught: number } }
 const groupBuffers = new Map();
 let isLoopRunning = false;
 let globalStats = { totalScanned: 0, totalNew: 0, totalDuplicates: 0, totalFlushed: 0, mongoFlushed: 0, mongoErrors: 0 };
+
+/**
+ * Guarda metadatos del grupo (nombre original) para recuperación futura
+ */
+async function saveGroupMetadata(sanitizedName, realName, groupJid) {
+  try {
+    const metadataPath = path.join(DB_DIR, '_groupMetadata.json');
+    let metadata = {};
+    
+    // Leer metadata existente
+    if (fs.existsSync(metadataPath)) {
+      try {
+        const data = await fsp.readFile(metadataPath, 'utf-8');
+        metadata = JSON.parse(data);
+      } catch (e) {
+        console.error(`⚠️  Error leyendo _groupMetadata.json: ${e.message}`);
+      }
+    }
+    
+    // Actualizar con nuevo mapeo
+    metadata[sanitizedName] = {
+      realName,
+      groupJid,
+      savedAt: new Date().toISOString()
+    };
+    
+    // Guardar
+    await fsp.writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
+  } catch (e) {
+    console.error(`⚠️  Error guardando metadatos: ${e.message}`);
+  }
+}
 
 /**
  * Flush a MongoDB Atlas usando bulkWrite (upsert automático)
@@ -78,14 +118,22 @@ async function flushToMongoDB(groupJid, groupName, jidsArray) {
 // Helpers
 async function ensureGroup(sock, groupJid) {
   if (!groupBuffers.has(groupJid)) {
-    groupBuffers.set(groupJid, { name: null, buffer: new Set(), totalCaught: 0, retries: 0 });
+    groupBuffers.set(groupJid, { name: null, realName: null, buffer: new Set(), totalCaught: 0, retries: 0 });
     try {
       const metadata = await sock.groupMetadata(groupJid);
-      const groupName = sanitizeGroupName(metadata.subject);
+      const groupName = sanitizeGroupName(metadata.subject); // Nombre sanitizado para archivo
+      const realName = metadata.subject; // Nombre original
+      
       groupBuffers.get(groupJid).name = groupName;
+      groupBuffers.get(groupJid).realName = realName;
       groupBuffers.get(groupJid).retries = 0; // Reset retries on success
+      
+      // Guardar metadatos con nombre real
+      await saveGroupMetadata(groupName, realName, groupJid);
+      
       console.log(`🕵️ [SPY AUTO] ═══════════════════════════════════════`);
-      console.log(`🕵️ [SPY AUTO] 📡 Radar ENCENDIDO en: ${groupName}`);
+      console.log(`🕵️ [SPY AUTO] 📡 Radar ENCENDIDO en: ${realName}`);
+      console.log(`🕵️ [SPY AUTO] 💾 Archivo: ${groupName}.json`);
       console.log(`🕵️ [SPY AUTO] 🔗 JID: ${groupJid}`);
       console.log(`🕵️ [SPY AUTO] 📊 Grupos monitoreados: ${groupBuffers.size}`);
       console.log(`🕵️ [SPY AUTO] ═══════════════════════════════════════`);
@@ -137,11 +185,12 @@ function startGlobalSpyLoop() {
       if (data.name && data.buffer.size > 0) {
         const jidsToSave = Array.from(data.buffer);
         const numbers = jidsToSave.map(j => j.split('@')[0]);
+        const displayName = data.realName || data.name; // Mostrar nombre real si está disponible
         
-        console.log(`   💾 ${data.name}: ${jidsToSave.length} contactos → [${numbers.slice(0, 5).join(', ')}${numbers.length > 5 ? ` ...+${numbers.length - 5} más` : ''}]`);
+        console.log(`   💾 ${displayName}: ${jidsToSave.length} contactos → [${numbers.slice(0, 5).join(', ')}${numbers.length > 5 ? ` ...+${numbers.length - 5} más` : ''}]`);
         
         // Guardar a disco (método original)
-        await guardarGrupoClonado(data.name, jidsToSave).catch(e => console.error(`   ❌ Error guardando en disco "${data.name}":`, e.message));
+        await guardarGrupoClonado(data.name, jidsToSave).catch(e => console.error(`   ❌ Error guardando en disco "${displayName}":`, e.message));
         
         // Guardar a MongoDB (NUEVO - integración CAMBIO #9)
         if (database.isConnected) {
