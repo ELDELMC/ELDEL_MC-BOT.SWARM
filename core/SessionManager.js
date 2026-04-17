@@ -42,6 +42,8 @@ class SessionManager {
         this.starting = new Set();
         // Track sessions currently requesting a pairing code to avoid duplicate calls
         this.pairingInProgress = new Set();
+        // Timestamp when pairing code was generated
+        this.pairingCodeGeneratedAt = null;
         // Lock timeout: if a lock is older than this, it's considered stale (5 minutes)
         this.lockTimeoutMs = 5 * 60 * 1000;
         // Track reconnection attempts for error reporting
@@ -644,6 +646,19 @@ class SessionManager {
                         const pairingAttempts = (backoff.pairingAttempts || 0);
                         const maxPairingAttempts = 8; // Máximo 8 intentos de pairing fallidos
                         
+                        // Si el código fue generado hace menos de 5 minutos, esperar más
+                        const pairingAge = this.pairingCodeGeneratedAt ? (Date.now() - this.pairingCodeGeneratedAt) : 0;
+                        const isWaitingForPairing = pairingAge > 0 && pairingAge < 300000;
+                        
+                        if (isWaitingForPairing) {
+                            // Todavía esperamos que el usuario vincule - esperar más tiempo
+                            const remainingTime = 300000 - pairingAge;
+                            log('info', `Esperando vinculación (${Math.round(remainingTime/1000)}s restantes)...`, sessionIndex);
+                            await delay(Math.min(remainingTime, 300000));
+                            // No reiniciar - dejar que el proceso de vinculación continúe
+                            return;
+                        }
+                        
                         if (pairingAttempts >= maxPairingAttempts) {
                             log('error', `S${sessionIndex} alcanzó límite de reintentos de pairing (${pairingAttempts}/${maxPairingAttempts}). Paused. Requiere intervención manual.`, sessionIndex);
                             this.awaitingPairing.add(sessionIndex);
@@ -893,11 +908,11 @@ class SessionManager {
 
         // Delays base por código de error - aumentado para pairing
         const baseDelays = {
-            401: 120000,   // 2 min
-            428: 120000,   // 2 min (aumentado de 60s)
-            440: 300000,   // 5 min
-            404: 180000,   // 3 min
-            515: 120000,   // 2 min
+            401: 180000,   // 3 min
+            428: 180000,  // 3 min
+            440: 300000,  // 5 min
+            404: 180000,  // 3 min
+            515: 180000,  // 3 min
         };
 
         const baseDelay = baseDelays[statusCode] || 120000;
@@ -1076,12 +1091,16 @@ class SessionManager {
 
     /**
      * Generar código de vinculación directamente (sin delays)
+     * Mantiene la sesión viva esperando vinculación
      */
     async _requestPairingCodeDirect(sessionIndex, sock, phoneNumber) {
         if (this.pairingInProgress.has(sessionIndex)) {
             return;
         }
         this.pairingInProgress.add(sessionIndex);
+        
+        // Track cuando se generó el código para no reiniciar prematuramente
+        this.pairingCodeGeneratedAt = Date.now();
 
         try {
             const pn = parsePhoneNumber(`+${phoneNumber.replace(/[^0-9]/g, '')}`);
@@ -1103,17 +1122,44 @@ class SessionManager {
             const deviceName = config.deviceNames[sessionIndex - 1] || `S${sessionIndex}`;
             console.log(`\n╔══════════════════════════════════════════╗`);
             console.log(`║  CÓDIGO DE VINCULACIÓN - SESIÓN ${sessionIndex}     ║`);
-            console.log(`╚══════════════════════════════════════════╝`);
+            console.log(`╚═══════════════════════════════��══════════╝`);
             console.log(`📱 Número: ${phoneNumber}`);
             console.log(`🔢 Código: ${formattedCode}`);
             console.log(`⏱️ Tienes 5 minutos para vincular en WhatsApp`);
             console.log(`   WhatsApp → Ajustes → Dispositivos vinculados → Vincular dispositivo\n`);
+            console.log(`⚠️ NO reinicies el bot mientras esperas el código!\n`);
             
             log('success', `Código generado: ${formattedCode}`, sessionIndex);
+            
+            // Mantener el socket vivo esperando vinculación por 5 minutos
+            // No hacer nada más - solo esperar a que el usuario vincule
+            const waitTime = 300000; // 5 minutos
+            const startWait = Date.now();
+            
+            while (Date.now() - startWait < waitTime) {
+                await delay(5000); // Verificar cada 5 segundos
+                
+                // Si ya se connectó, salir
+                if (this.connected.get(sessionIndex)) {
+                    log('info', `S${sessionIndex} vinculada exitosamente!`, sessionIndex);
+                    return;
+                }
+                
+                // Si el socket ya no existe, salir
+                if (!this.sockets.has(sessionIndex)) {
+                    log('info', `Socket closed, will retry normally`, sessionIndex);
+                    return;
+                }
+            }
+            
+            // Timeout después de 5 minutos
+            log('warn', `Tiempo de vinculación agotado (5 min). Cerrando...`, sessionIndex);
+            
         } catch (err) {
             log('error', `Error generando código: ${err.message}`, sessionIndex);
         } finally {
             this.pairingInProgress.delete(sessionIndex);
+            this.pairingCodeGeneratedAt = null;
         }
     }
 
