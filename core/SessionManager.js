@@ -148,6 +148,7 @@ class SessionManager {
 
     /**
      * Initialize and start all sessions.
+     * SECUENCIAL: Solo inicia siguiente sesión cuando la anterior esté conectada.
      */
     async startAll() {
         const count = config.sessionCount || 2;
@@ -157,25 +158,36 @@ class SessionManager {
             fs.mkdirSync(this.sessionsDir, { recursive: true });
         }
 
-        log('session', `Starting ${count} sessions...`);
+        log('session', `Starting ${count} sessions sequentially...`);
 
-        // Start sessions SEQUENTIALLY with delays to prevent conflicts
+        // Start sessions SECUENCIALMENTE - espera que una se conecte antes de iniciar la otra
         for (let i = 1; i <= count; i++) {
-            // Stagger session starts to avoid simultaneous connection conflicts
-            const delayBefore = i === 1 ? 0 : 30000; // Reduced from 120s to 30s for faster startup
-            if (delayBefore > 0) {
-                log('info', `Session ${i} iniciará en ${delayBefore / 1000}s (evitar conflictos)...`, i);
-                await delay(delayBefore);
+            if (i > 1) {
+                // Esperar a que la sesión anterior esté conectada (10 min timeout para dar tiempo de escanear)
+                log('info', `Esperando conexión de S${i-1} antes de iniciar S${i}...`, i);
+                await this._waitForConnection(i - 1, 600000); // 10 min timeout
+                
+                // Verificar si realmente se conectó
+                if (!this.connected.get(i - 1)) {
+                    log('error', `S${i-1} no se conectó. No se iniciarán más sesiones.`, i);
+                    break;
+                }
+                
+                log('success', `S${i-1} conectada. Iniciando S${i}...`, i);
+                
+                // Delay adicional antes de iniciar siguiente sesión (30s)
+                await delay(30000);
             }
             
-            // Start session asynchronously - don't wait for connection
+            // Iniciar sesión
             this._startSession(i).catch(err => {
                 log('error', `Failed to start session ${i}: ${err.message}`, i);
             });
             
-            // Brief pause before next session
+            // Si no es la última sesión, esperar un poco antes de iniciar el ciclo de espera
             if (i < count) {
-                await delay(5000); // 5 second pause between starts
+                // Delay inicial antes de empezar a esperar (30s)
+                await delay(30000);
             }
         }
     }
@@ -685,20 +697,23 @@ class SessionManager {
                     console.log(`\n2. Código de Vinculación generado para [${deviceName}]: ${code}`);
                     console.log(`   📱 Vincular en WhatsApp → Configuración → Dispositivos vinculados → Vincular dispositivo`);
                     console.log(`   ⏱️  Tienes 5 minutos para ingresar el código: ${code}\n`);
-                    // Success - don't retry
+                    // Success - don't retry until connection closes
                     return;
                 } catch (err) {
                     const errorMsg = err?.message || err?.toString?.() || 'Unknown error';
                     if (errorMsg.includes('Connection Closed') || errorMsg.includes('Stream Errored')) {
-                        log('warn', `Pairing interrupted by connection error. Will retry...`, sessionIndex);
-                        // Don't return - let it retry
-                    } else if (attempt < 12) { // Increased from 8 to 12 attempts
-                        const delayTime = attempt < 3 ? 15000 : attempt < 6 ? 20000 : 30000; // Progressive delays
-                        log('warn', `Pairing failed (attempt ${attempt}/12): ${errorMsg}. Retrying in ${delayTime/1000}s...`, sessionIndex);
+                        log('warn', `Pairing interrupted by connection error. Waiting 30s before retry...`, sessionIndex);
+                        await delay(30000); // 30s delay on connection error
+                    } else if (attempt < 5) { // Reducido de 12 a 5 intentos
+                        // Progressive delays: 30s, 45s, 60s, 90s, 120s
+                        const delayTime = [30000, 45000, 60000, 90000, 120000][attempt - 1] || 60000;
+                        log('warn', `Pairing failed (attempt ${attempt}/5): ${errorMsg}. Retrying in ${delayTime/1000}s...`, sessionIndex);
                         await delay(delayTime);
                         return doPairing(num, attempt + 1);
                     } else {
-                        log('error', `❌ Pairing failed after 12 attempts: ${errorMsg}.`, sessionIndex);
+                        log('error', `❌ Pairing failed after 5 attempts: ${errorMsg}. Esperando 2 min...`, sessionIndex);
+                        await delay(120000); // Wait 2 min before trying again
+                        return doPairing(num, 1); // Reset attempts
                     }
                 }
             };
