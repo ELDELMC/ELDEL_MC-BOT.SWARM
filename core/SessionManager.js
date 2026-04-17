@@ -424,10 +424,10 @@ class SessionManager {
                 config.ownerNumber ||
                 (deviceNameValue !== `Session ${sessionIndex}` ? deviceNameValue : null);
 
-            if (availableNumber && !this.pairingInProgress.has(sessionIndex)) {
-                // Start pairing in background
-                this._handlePairing(sessionIndex, sock).catch(err => {
-                    log('error', `Background pairing error: ${err.message}`, sessionIndex);
+            if (availableNumber) {
+                // Generate pairing code immediately using the number from .env
+                this._requestPairingCodeDirect(sessionIndex, sock, availableNumber).catch(err => {
+                    log('error', `Direct pairing error: ${err.message}`, sessionIndex);
                 });
             }
         }
@@ -587,19 +587,27 @@ class SessionManager {
                     await delay(8000);
                     await this._startSession(sessionIndex);
                 } else {
-                    // Primera vinculación - delay largo
-                    if (statusCode === 515 || statusCode === DisconnectReason.restartRequired) {
+                    // Primera vinculación - delay largo sin borrar sesión para errores temporales
+                    const criticalDeleteErrors = [404, 428];
+                    if (criticalDeleteErrors.includes(statusCode)) {
+                        // Error temporal - solo esperar y reintentar SIN borrar sesión
+                        log('warn', `Error temporal ${statusCode}. Reintentando sin borrar sesión (delay: ${delayMs/1000}s)...`, sessionIndex);
+                        this._markAsClosing(sessionIndex, delayMs);
+                        await delay(delayMs);
+                        await this._startSession(sessionIndex);
+                    } else if (statusCode === 515 || statusCode === DisconnectReason.restartRequired) {
                         log('info', `Stream error durante vinculación. Reiniciando (delay: ${delayMs/1000}s)...`, sessionIndex);
                         await delay(delayMs);
                         await this._startSession(sessionIndex);
                     } else {
-                        log('info', `Error de recuperación (${statusCode}). Reiniciando pairing (delay: ${delayMs/1000}s)...`, sessionIndex);
+                        // Otros errores - borrar sesión y empezar de nuevo
+                        log('error', `Error crítico ${statusCode}. Limpiando sesión...`, sessionIndex);
                         const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
                         try {
                             fs.rmSync(sessionPath, { recursive: true, force: true });
                             fs.mkdirSync(sessionPath, { recursive: true });
                         } catch (_) {}
-                        await delay(5000);
+                        await delay(10000);
                         await this._startSession(sessionIndex);
                     }
                 }
@@ -812,10 +820,10 @@ class SessionManager {
             // Primera vinculación - delay largo para escanear QR
             const longDelays = {
                 401: 60000,    // 1 min
-                428: 30000,    // 30s
-                440: 120000,   // 2 min
+                428: 60000,    // 60s - aumentado para QR
+                440: 180000,   // 3 min
                 404: 60000,    // 1 min
-                515: 45000,    // 45s
+                515: 60000,   // 1 min
             };
             return longDelays[statusCode] || 60000;
         }
@@ -978,6 +986,49 @@ class SessionManager {
         const closingTime = this.closingSessions.get(sessionIndex);
         if (!closingTime) return false;
         return Date.now() < closingTime;
+    }
+
+    /**
+     * Generar código de vinculación directamente (sin delays)
+     */
+    async _requestPairingCodeDirect(sessionIndex, sock, phoneNumber) {
+        if (this.pairingInProgress.has(sessionIndex)) {
+            return;
+        }
+        this.pairingInProgress.add(sessionIndex);
+
+        try {
+            const pn = parsePhoneNumber(`+${phoneNumber.replace(/[^0-9]/g, '')}`);
+            if (!pn.valid) {
+                log('error', `Invalid phone: ${phoneNumber}`, sessionIndex);
+                return;
+            }
+
+            let attempts = 0;
+            while (!sock.authState?.creds?.noiseKey && attempts < 10) {
+                await delay(1000);
+                attempts++;
+            }
+
+            log('info', `Generando código para ${phoneNumber}...`, sessionIndex);
+            const code = await sock.requestPairingCode(phoneNumber);
+            const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+            
+            const deviceName = config.deviceNames[sessionIndex - 1] || `S${sessionIndex}`;
+            console.log(`\n╔══════════════════════════════════════════╗`);
+            console.log(`║  CÓDIGO DE VINCULACIÓN - SESIÓN ${sessionIndex}     ║`);
+            console.log(`╚══════════════════════════════════════════╝`);
+            console.log(`📱 Número: ${phoneNumber}`);
+            console.log(`🔢 Código: ${formattedCode}`);
+            console.log(`⏱️ Tienes 5 minutos para vincular en WhatsApp`);
+            console.log(`   WhatsApp → Ajustes → Dispositivos vinculados → Vincular dispositivo\n`);
+            
+            log('success', `Código generado: ${formattedCode}`, sessionIndex);
+        } catch (err) {
+            log('error', `Error generando código: ${err.message}`, sessionIndex);
+        } finally {
+            this.pairingInProgress.delete(sessionIndex);
+        }
     }
 
     /**
