@@ -85,8 +85,9 @@ class LoadBalancer {
             }
 
             if (adminSessions.length === 0) {
-                // No session is admin — fall back to least-loaded
-                log('warn', `No session is admin in group. Falling back to least-loaded.`);
+                // No session is admin — return null to let caller handle the error
+                log('warn', `No session is admin in group ${groupId}. Cannot execute admin command.`);
+                return null;
             } else if (adminSessions.length === 1) {
                 const idx = adminSessions[0];
                 this._incrementTask(idx);

@@ -66,6 +66,11 @@ class Deduplicator {
             timestamp: Date.now(),
         });
 
+        // Prevent memory leak: cleanup if too many entries
+        if (this.seen.size > 10000) {
+            this._cleanup();
+        }
+
         return true;
     }
 

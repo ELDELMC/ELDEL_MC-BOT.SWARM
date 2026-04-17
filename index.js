@@ -17,6 +17,15 @@ import errorReporter from './core/ErrorReporter.js';
 import database from './core/Database.js';
 import { startFlushCycle } from './core/spyMode.js';
 
+// Global interval references for cleanup
+const globalIntervals = [];
+
+// Helper to track intervals for cleanup
+function registerInterval(intervalId) {
+    globalIntervals.push(intervalId);
+    return intervalId;
+}
+
 // ─── Global error handlers ───
 let errorHandlerReady = false;
 
@@ -104,9 +113,22 @@ tryPort(PORT).then(srv => {
     process.exit(1);
 });
 
-// Graceful shutdown for Express server
+// Graceful shutdown for Express server and intervals
 const shutdown = () => {
-    log('info', 'Received shutdown signal, closing Express server...');
+    log('info', 'Received shutdown signal, closing all resources...');
+    
+    // Clear all tracked intervals
+    for (const intervalId of globalIntervals) {
+        try {
+            clearInterval(intervalId);
+        } catch (_) { /* ignore */ }
+    }
+    globalIntervals.length = 0;
+    
+    // Cleanup SessionManager (keep-alives, watchdogs, etc)
+    if (sessionManager && typeof sessionManager.cleanupAll === 'function') {
+        sessionManager.cleanupAll();
+    }
     
     // Clean up session locks
     try {
@@ -140,16 +162,16 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 // ─── Memory watchdog ───
-setInterval(() => {
+registerInterval(setInterval(() => {
     const usedMB = process.memoryUsage().rss / 1024 / 1024;
     if (usedMB > 450) {
         log('warn', `RAM too high (${usedMB.toFixed(0)}MB > 450MB). Restarting...`);
         process.exit(1);
     }
-}, 30_000);
+}, 30_000));
 
 // ─── Session health watchdog ───
-setInterval(() => {
+registerInterval(setInterval(() => {
     const status = sessionManager.getStatus();
     const connectedCount = Object.values(status).filter(s => s.connected).length;
     const totalCount = Object.keys(status).length;
@@ -161,7 +183,7 @@ setInterval(() => {
     } else {
         log('success', `Session health: ${connectedCount}/${totalCount} connected ✓`);
     }
-}, 60_000);
+}, 60_000));
 
 // ─── Temp folder ───
 const tempDir = path.join(process.cwd(), 'temp');
@@ -171,7 +193,7 @@ process.env.TEMP = tempDir;
 process.env.TMP = tempDir;
 
 // Cleanup temp every hour
-setInterval(() => {
+registerInterval(setInterval(() => {
     try {
         const files = fs.readdirSync(tempDir);
         const now = Date.now();
@@ -183,7 +205,7 @@ setInterval(() => {
             }
         }
     } catch (_e) { /* silent */ }
-}, 60 * 60 * 1000);
+}, 60 * 60 * 1000));
 
 // ─── MAIN ───
 async function main() {

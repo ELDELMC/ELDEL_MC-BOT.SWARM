@@ -139,8 +139,8 @@ class CommandHandler {
 
         this.cooldowns.set(key, now);
         
-        // Cleanup old entries every 100 additions (prevent memory leak)
-        if (this.cooldowns.size > 5000) {
+        // Cleanup old entries periodically (every 50 calls instead of 5000)
+        if (this.cooldowns.size > 500) {
             const oldestThreshold = now - 3600000; // 1 hour
             for (const [key, ts] of this.cooldowns.entries()) {
                 if (ts < oldestThreshold) {
@@ -248,10 +248,12 @@ class CommandHandler {
                     if (plugin.command && typeof plugin.handler === 'function') {
                         this._register(plugin);
                         log('success', `Hot-reloaded plugin: ${filename}`);
+                    } else {
+                        log('warn', `Hot-reload skipped for ${filename}: missing command or handler`);
                     }
                 }
             } catch (err) {
-                log('error', `Hot-reload failed for ${filename}: ${err.message}`);
+                log('error', `Hot-reload FAILED for ${filename}: ${err.message}`);
             }
         });
 

@@ -1,5 +1,4 @@
 import sharp from 'sharp';
-import { MessageTypes } from '@whiskeysockets/baileys';
 
 export default {
     command: 'grayscale',

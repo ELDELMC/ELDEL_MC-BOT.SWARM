@@ -234,10 +234,19 @@ export async function handleMessage(sock, message, sessionIndex) {
             isSenderAdmin = adminResult.isSenderAdmin;
 
             if (!isBotAdmin) {
-                // Try to find another session that IS admin
-                log('balancer', `Local session S${sessionIndex} is not admin. Searching alternatives...`, sessionIndex);
-                const alternative = await loadBalancer.pick(chatId, true);
-                if (alternative && alternative.sessionIndex !== sessionIndex) {
+                    // Try to find another session that IS admin
+                    log('balancer', `Local session S${sessionIndex} is not admin. Searching alternatives...`, sessionIndex);
+                    const alternative = await loadBalancer.pick(chatId, true);
+                    
+                    // If no session is admin, tell the user
+                    if (!alternative) {
+                        log('warn', `No session is admin for command ${cmd.command} in ${chatId}`, sessionIndex);
+                        await sock.sendMessage(chatId, {
+                            text: reply('El bot necesita ser administrador para ejecutar este comando.'),
+                        }, { quoted: message });
+                        return;
+                    }
+                    
                     const altAdmin = await adminChecker.check(alternative.sock, chatId, senderId);
                     if (altAdmin.isBotAdmin) {
                         // Delegate to the admin session
@@ -245,23 +254,20 @@ export async function handleMessage(sock, message, sessionIndex) {
                         sock = alternative.sock;
                         isBotAdmin = altAdmin.isBotAdmin;
                         isSenderAdmin = altAdmin.isSenderAdmin;
+                    } else {
+                        log('warn', `Admin command ${cmd.command} REJECTED: No session is admin in ${chatId}`, sessionIndex);
+                        await sock.sendMessage(chatId, {
+                            text: reply('El bot necesita ser administrador para ejecutar este comando.'),
+                        }, { quoted: message });
+                        return;
                     }
                 }
 
-                if (!isBotAdmin) {
-                    log('warn', `Admin command ${cmd.command} REJECTED: Bot is not admin in ${chatId}`, sessionIndex);
+                if (!isSenderAdmin && !senderIsOwner) {
+                    log('warn', `Admin command ${cmd.command} REJECTED: User ${senderId.split('@')[0]} is not admin`, sessionIndex);
                     await sock.sendMessage(chatId, {
-                        text: reply('El bot necesita ser administrador para ejecutar este comando.'),
+                        text: reply('Solo los administradores del grupo pueden usar este comando.'),
                     }, { quoted: message });
-                    return;
-                }
-            }
-
-            if (!isSenderAdmin && !senderIsOwner) {
-                log('warn', `Admin command ${cmd.command} REJECTED: User ${senderId.split('@')[0]} is not admin`, sessionIndex);
-                await sock.sendMessage(chatId, {
-                    text: reply('Solo los administradores del grupo pueden usar este comando.'),
-                }, { quoted: message });
                 return;
             }
         }

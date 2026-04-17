@@ -40,10 +40,29 @@ class SessionManager {
         this.awaitingPairing = new Set();
         // Track sessions currently in the process of starting to prevent concurrent starts
         this.starting = new Set();
+        // Track sessions currently requesting a pairing code to avoid duplicate calls
+        this.pairingInProgress = new Set();
         // Lock timeout: if a lock is older than this, it's considered stale (5 minutes)
         this.lockTimeoutMs = 5 * 60 * 1000;
         // Track reconnection attempts for error reporting
         this.reconnectionAttempts = new Map();
+        // Max reconnection attempts before giving up and requiring manual intervention
+        this.maxReconnectionAttempts = config.maxReconnectAttempts || 10;
+        
+        // ─── ESTABILIDAD MEJORADA ───
+        // Backoff exponencial: sessionIndex → { attempt, lastAttempt }
+        this.reconnectBackoff = new Map();
+        // Sesiones que están en proceso de cierre para evitar restart loops
+        this.closingSessions = new Map();
+        // Historial de desconexiones para análisis
+        this.disconnectHistory = new Map();
+        // Keep-alive intervals por sesión
+        this.keepAliveIntervals = new Map();
+        // Watchdog intervals
+        this.watchdogIntervals = new Map();
+        // Config de estabilidad
+        this.keepAliveMs = config.keepAliveMs || 60000;
+        this.watchdogTimeoutMs = config.watchdogTimeoutMs || 180000;
     }
 
     /**
@@ -140,21 +159,23 @@ class SessionManager {
 
         log('session', `Starting ${count} sessions...`);
 
-        // Start sessions SEQUENTIALLY with aggressive delays to prevent conflicts
+        // Start sessions SEQUENTIALLY with delays to prevent conflicts
         for (let i = 1; i <= count; i++) {
             // Stagger session starts to avoid simultaneous connection conflicts
-            const delayBefore = i === 1 ? 0 : 120000; // S2: wait 120s after S1 connects (MEJORADO)
+            const delayBefore = i === 1 ? 0 : 30000; // Reduced from 120s to 30s for faster startup
             if (delayBefore > 0) {
                 log('info', `Session ${i} iniciará en ${delayBefore / 1000}s (evitar conflictos)...`, i);
                 await delay(delayBefore);
             }
             
-            await this._startSession(i);
+            // Start session asynchronously - don't wait for connection
+            this._startSession(i).catch(err => {
+                log('error', `Failed to start session ${i}: ${err.message}`, i);
+            });
             
-            // Wait for this session to connect successfully (unless it's the last one)
+            // Brief pause before next session
             if (i < count) {
-                log('info', `Esperando conexión de sesión ${i}...`, i);
-                await this._waitForConnection(i, 180000); // Wait max 3 minutes
+                await delay(5000); // 5 second pause between starts
             }
         }
     }
@@ -262,18 +283,17 @@ class SessionManager {
                 shouldIgnoreJids: ['status@broadcast'],
                 getMessage: async () => ({ conversation: '' }),
                 
-                // ─── CONNECTION SETTINGS (MEJORADO) ───
-                // Keep-alive reducido a 20s para detectar caídas más rápido
-                defaultQueryTimeoutMs: 120000,
-                connectTimeoutMs: 80000,         // ← Reducido de 120s a 80s
-                keepAliveIntervalMs: 20000,      // ← Reducido de 30s a 20s (MÁS AGRESIVO)
+                // ─── CONNECTION SETTINGS (OPTIMIZADO PARA ESTABILIDAD) ───
+                defaultQueryTimeoutMs: 180000,        // 3 min para queries
+                connectTimeoutMs: 120000,            // 2 min para conectar
+                keepAliveIntervalMs: 45000,          // 45s (no tan agresivo)
                 qrTimeout: 300000,
                 maxDiffSyncMs: 86400000,
                 
-                // ─── RETRY SETTINGS (MEJORADO) ───
-                retryRequestDelayMs: 100,
-                maxMsgsInMemory: 50,
-                msgRetryCounterMax: 5,           // ← Aumentado de 3 a 5 reintentos
+                // ─── RETRY SETTINGS (OPTIMIZADOS) ───
+                retryRequestDelayMs: 200,
+                maxMsgsInMemory: 100,
+                msgRetryCounterMax: 3,
             });
 
             // Store socket
@@ -376,11 +396,26 @@ class SessionManager {
         if (qr) {
             try {
                 const QRCode = (await import('qrcode')).default;
-                console.log(`\n[S${sessionIndex}] Escanea el siguiente QR si no deseas usar Código de Vinculación:`);
+                console.log(`\n[S${sessionIndex}] Opciones de vinculación para Session ${sessionIndex}:`);
+                console.log(`\n1. Escanea el QR a continuación:`);
                 console.log(await QRCode.toString(qr, { type: 'terminal', small: true }));
-                log('info', `QR generado. Esperando escaneo...`, sessionIndex);
+                console.log(`\n2. O usa Código de Vinculación (configure BOT_ROTO/PERSONAL o PAIRING_NUMBERS/OWNER_NUMBER en .env)`);
+                log('info', `QR generado. Esperando escaneo o código...`, sessionIndex);
             } catch (_e) {
                 log('info', `QR generado (no se pudo renderizar)`, sessionIndex);
+            }
+
+            const pairingNumbers = config.pairingNumbers || [];
+            const availableNumber = process.env[`PAIRING_NUMBER_${sessionIndex}`] ||
+                process.env[config.deviceNames[sessionIndex - 1]] ||
+                pairingNumbers[sessionIndex - 1] ||
+                config.ownerNumber;
+
+            if (availableNumber && !this.pairingInProgress.has(sessionIndex)) {
+                // Start pairing in background
+                this._handlePairing(sessionIndex, sock).catch(err => {
+                    log('error', `Background pairing error: ${err.message}`, sessionIndex);
+                });
             }
         }
 
@@ -404,20 +439,34 @@ class SessionManager {
             }
             
             // Reset reconnection attempt counter on successful connection
+            this._resetBackoff(sessionIndex);
             this.reconnectionAttempts.delete(sessionIndex);
             
-            // IMPORTANT: Keep alive pinging
-            if (!sock.keepAliveIntervalMs || sock.keepAliveIntervalMs < 30000) {
-                log('info', `Configurando keep-alive a 30s`, sessionIndex);
-            }
+            // Iniciar keep-alive activo
+            this._startKeepAlive(sessionIndex);
+            
+            // Iniciar watchdog
+            this._startWatchdog(sessionIndex);
+            
+            log('info', `Keep-alive y watchdog activados para S${sessionIndex}`, sessionIndex);
         }
 
         if (connection === 'close') {
+            // Verificar si está en proceso de cierre para evitar restart loops
+            if (this._isClosing(sessionIndex)) {
+                log('info', `S${sessionIndex} en proceso de cierre, ignorando disconnect`, sessionIndex);
+                return;
+            }
+            
             const currentSock = this.sockets.get(sessionIndex);
             
             this.connected.set(sessionIndex, false);
             loadBalancer.unregister(sessionIndex);
             this.sockets.delete(sessionIndex);
+
+            // Detener keep-alive y watchdog
+            this._stopKeepAlive(sessionIndex);
+            this._stopWatchdog(sessionIndex);
 
             // CRITICAL: If the connection closed, we MUST allow the session to be restarted
             if (this.starting.has(sessionIndex)) {
@@ -431,17 +480,35 @@ class SessionManager {
             
             log('warn', `Cerrada. Código: ${statusCode}, Error: ${errorMsg}, Registrado: ${isRegistered}`, sessionIndex);
             
+            // ─── PROTEGER CONTRA RESTART LOOPS ───
+            // Si hay muchos intentos recientes, aumentar delay
+            const recentAttempts = this.reconnectionAttempts.get(sessionIndex) || 0;
+            if (recentAttempts > 3) {
+                log('warn', `S${sessionIndex} múltiples desconexiones. Aplicandobackoff agresivo...`, sessionIndex);
+            }
+            
             // ─── REPORT SIGNIFICANT DISCONNECTIONS ───
             const reportableErrors = [401, 404, 440, 515, 428, DisconnectReason.loggedOut, DisconnectReason.restartRequired];
             if (reportableErrors.includes(statusCode) && isRegistered) {
                 const reconnectAttempts = (this.reconnectionAttempts.get(sessionIndex) || 0) + 1;
                 this.reconnectionAttempts.set(sessionIndex, reconnectAttempts);
                 
+                // Check if we've exceeded max reconnection attempts
+                if (reconnectAttempts > this.maxReconnectionAttempts) {
+                    log('error', `S${sessionIndex} exceeded max reconnection attempts (${this.maxReconnectionAttempts}). Stopping auto-reconnect.`, sessionIndex);
+                    this.awaitingPairing.add(sessionIndex);
+                    // Don't restart, require manual intervention
+                    return;
+                }
+                
                 // Report error asynchronously to avoid blocking reconnection logic
                 errorReporter.handleSessionDisconnection(sessionIndex, lastDisconnect?.error, reconnectAttempts).catch(err => {
                     log('warn', `Failed to report session disconnection: ${err.message}`);
                 });
             }
+            
+            // ─── USAR BACKOFF EXPONENCIAL ───
+            const backoffDelay = this._calculateBackoff(sessionIndex, statusCode);
             
             // Strategic reconnect logic based on error codes
             const criticalErrors = [DisconnectReason.loggedOut, 404];
@@ -456,24 +523,34 @@ class SessionManager {
                      return;
                 }
                 
-                // CRITICAL: Wipe and require re-pairing
-                log('error', `Error crítico ${statusCode}. Limpiando sesión...`, sessionIndex);
-                const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
-                try {
-                    fs.rmSync(sessionPath, { recursive: true, force: true });
-                    fs.mkdirSync(sessionPath, { recursive: true });
-                } catch (_) {}
-                this.awaitingPairing.add(sessionIndex);
-                log('info', `Sesión limpiada. Re-intentando inicio para vinculación...`, sessionIndex);
-                
-                await delay(5000);
-                await this._startSession(sessionIndex);
-                return;
+                // CRITICAL: Wipe and require re-pairing only if not registered
+                if (!isRegistered) {
+                    log('error', `Error crítico ${statusCode} sin registro. Limpiando sesión...`, sessionIndex);
+                    const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
+                    try {
+                        fs.rmSync(sessionPath, { recursive: true, force: true });
+                        fs.mkdirSync(sessionPath, { recursive: true });
+                    } catch (_) {}
+                    this.awaitingPairing.add(sessionIndex);
+                    log('info', `Sesión limpiada. Re-intentando inicio para vinculación...`, sessionIndex);
+                    
+                    await delay(10000);
+                    await this._startSession(sessionIndex);
+                    return;
+                } else {
+                    // Registered but got logged out - try to recover WITHOUT clearing session
+                    log('warn', `Sesión ${sessionIndex} desconectada pero registrada. Reintentando sin borrar credenciales (backoff: ${backoffDelay/1000}s)...`, sessionIndex);
+                    this._markAsClosing(sessionIndex, backoffDelay);
+                    await delay(backoffDelay);
+                    await this._startSession(sessionIndex);
+                    return;
+                }
             }
 
             if (statusCode === 440) {
-                log('warn', `Conflicto detectado (440). Esperando 90s antes de reconectar...`, sessionIndex);
-                await delay(90000);
+                log('warn', `Conflicto detectado (440). Esperando backoff (${backoffDelay/1000}s)...`, sessionIndex);
+                this._markAsClosing(sessionIndex, backoffDelay);
+                await delay(backoffDelay);
                 await this._startSession(sessionIndex);
                 return;
             }
@@ -485,19 +562,20 @@ class SessionManager {
                 }
 
                 if (isRegistered && (statusCode === 401 || statusCode === 428)) {
-                    const delayTime = statusCode === 401 ? 30000 : 8000;
-                    log('warn', `Conflicto detectado (${statusCode}). Re-intentando en ${delayTime/1000}s...`, sessionIndex);
-                    await delay(delayTime);
+                    // NO borrar sesión - usar backoff exponencial
+                    log('warn', `Conflicto (${statusCode}). Backoff: ${backoffDelay/1000}s sin borrar sesión...`, sessionIndex);
+                    this._markAsClosing(sessionIndex, backoffDelay);
+                    await delay(backoffDelay);
                     await this._startSession(sessionIndex);
                 } else if (isRegistered && (statusCode === 515 || statusCode === DisconnectReason.restartRequired)) {
                     log('info', `Reinicio automático de sesión registrada...`, sessionIndex);
-                    await delay(5000);
+                    await delay(8000);
                     await this._startSession(sessionIndex);
                 } else {
                     // Not registered or critical recovery
                     if (statusCode === 515 || statusCode === DisconnectReason.restartRequired) {
                         log('info', `Stream error durante vinculación. Reiniciando sin limpiar sesión...`, sessionIndex);
-                        await delay(10000);
+                        await delay(15000);
                         await this._startSession(sessionIndex);
                     } else {
                         log('info', `Error de recuperación (${statusCode}). Reiniciando pairing...`, sessionIndex);
@@ -513,10 +591,11 @@ class SessionManager {
                 return;
             }
             
-            // Transient errors: simple reconnect
+            // Transient errors: usar backoff exponencial
             if (!this.starting.has(sessionIndex)) {
-                const delayMs = statusCode === 440 ? 15000 : 10000;
-                log('warn', `Reconectando en ${delayMs / 1000}s...`, sessionIndex);
+                const delayMs = Math.max(backoffDelay, 15000);
+                log('warn', `Reconectando con backoff (${delayMs / 1000}s)...`, sessionIndex);
+                this._markAsClosing(sessionIndex, delayMs);
                 await delay(delayMs);
                 await this._startSession(sessionIndex);
             }
@@ -524,21 +603,28 @@ class SessionManager {
     }
 
     async _handlePairing(sessionIndex, sock) {
-        const pairingNumbers = config.pairingNumbers || [];
-        // Prioritize individual variables like BOT_ROTO, PERSONAL, etc
-        // Fallback to comma separated list or owner number
-        let phoneNumberInput = process.env[`PAIRING_NUMBER_${sessionIndex}`] ||
-                             process.env[config.deviceNames[sessionIndex - 1]] ||
-                             pairingNumbers[sessionIndex - 1] ||
-                             config.ownerNumber;
+        if (this.pairingInProgress.has(sessionIndex)) {
+            return;
+        }
+        this.pairingInProgress.add(sessionIndex);
+
+        try {
+            const pairingNumbers = config.pairingNumbers || [];
+            // Prioritize individual variables like BOT_ROTO, PERSONAL, etc
+            // Fallback to comma separated list or owner number
+            let phoneNumberInput = process.env[`PAIRING_NUMBER_${sessionIndex}`] ||
+                                 process.env[config.deviceNames[sessionIndex - 1]] ||
+                                 pairingNumbers[sessionIndex - 1] ||
+                                 config.ownerNumber;
 
             const doPairing = async (num, attempt = 1) => {
-                // Stop if socket was replaced or closed
-                if (this.sockets.get(sessionIndex) !== sock) return;
-                if (this.connected.get(sessionIndex) === false) {
-                    log('warn', `Stopping pairing loop: connection closed`, sessionIndex);
-                    return;
-                }
+                // Stop if socket was replaced or closed AND we're not expecting reconnection
+                if (this.sockets.get(sessionIndex) !== sock && !this.starting.has(sessionIndex)) return;
+                // Don't stop on connection close during pairing - let it retry
+                // if (this.connected.get(sessionIndex) === false) {
+                //     log('warn', `Stopping pairing loop: connection closed`, sessionIndex);
+                //     return;
+                // }
 
                 if (!num) {
                     // INTERACTIVE PROMPT: Only if it's the current socket and it's still alive
@@ -596,43 +682,49 @@ class SessionManager {
                     code = code?.match(/.{1,4}/g)?.join('-') || code;
                     log('success', `Pairing code generated: ${code}`, sessionIndex);
                     const deviceName = config.deviceNames[sessionIndex - 1] || `S${sessionIndex}`;
-                    console.log(`\n  🔑 [${deviceName}] Your Pairing Code : ${code}\n`);
-                    console.log(`   📱 Vincular en WhatsApp → Configuración → Dispositivos vinculados\n`);
-                    console.log(`   ⏱️  Tienes 5 minutos para vincular - escanea el código o usa: ${code}\n`);
+                    console.log(`\n2. Código de Vinculación generado para [${deviceName}]: ${code}`);
+                    console.log(`   📱 Vincular en WhatsApp → Configuración → Dispositivos vinculados → Vincular dispositivo`);
+                    console.log(`   ⏱️  Tienes 5 minutos para ingresar el código: ${code}\n`);
+                    // Success - don't retry
+                    return;
                 } catch (err) {
                     const errorMsg = err?.message || err?.toString?.() || 'Unknown error';
                     if (errorMsg.includes('Connection Closed') || errorMsg.includes('Stream Errored')) {
-                        log('warn', `Pairing interrupted by connection error. Stopping loop...`, sessionIndex);
-                        return;
-                    }
-                    if (attempt < 8) {
-                        const delayTime = attempt < 3 ? 15000 : 20000;
-                        log('warn', `Pairing failed (attempt ${attempt}/8): ${errorMsg}. Retrying in ${delayTime/1000}s...`, sessionIndex);
+                        log('warn', `Pairing interrupted by connection error. Will retry...`, sessionIndex);
+                        // Don't return - let it retry
+                    } else if (attempt < 12) { // Increased from 8 to 12 attempts
+                        const delayTime = attempt < 3 ? 15000 : attempt < 6 ? 20000 : 30000; // Progressive delays
+                        log('warn', `Pairing failed (attempt ${attempt}/12): ${errorMsg}. Retrying in ${delayTime/1000}s...`, sessionIndex);
                         await delay(delayTime);
                         return doPairing(num, attempt + 1);
                     } else {
-                        log('error', `❌ Pairing failed after 8 attempts: ${errorMsg}.`, sessionIndex);
+                        log('error', `❌ Pairing failed after 12 attempts: ${errorMsg}.`, sessionIndex);
                     }
                 }
             };
 
             // Intelligent wait: poll for readiness instead of blind 25s
             let isReady = false;
-            for (let i = 0; i < 30; i++) {
+            let attempts = 0;
+            while (!isReady && attempts < 60) { // Increased from 30 to 60 attempts
                 if (this.sockets.get(sessionIndex) !== sock) return;
                 if (sock.authState?.creds?.noiseKey) {
                     isReady = true;
                     break;
                 }
                 await delay(1000);
+                attempts++;
             }
 
             if (!isReady) {
-                log('warn', `Socket not ready for pairing after 30s.`, sessionIndex);
-                return;
+                log('warn', `Socket not ready for pairing after 60s. Proceeding anyway...`, sessionIndex);
+                // Don't return - try pairing even if not fully ready
             }
 
             await doPairing(phoneNumberInput);
+        } finally {
+            this.pairingInProgress.delete(sessionIndex);
+        }
     }
 
     /**
@@ -659,6 +751,185 @@ class SessionManager {
             });
         }
         return status;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // │          MEJORAS DE ESTABILIDAD 24/7                      │
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Calcular delay de reconexión con backoff exponencial
+     * @param {number} sessionIndex 
+     * @param {number} statusCode 
+     * @returns {number} delay en ms
+     */
+    _calculateBackoff(sessionIndex, statusCode) {
+        const backoff = this.reconnectBackoff.get(sessionIndex) || { attempt: 0 };
+        backoff.attempt++;
+        backoff.lastAttempt = Date.now();
+        this.reconnectBackoff.set(sessionIndex, backoff);
+
+        // Delays base por código de error
+        const baseDelays = {
+            401: 60000,    // 1 min
+            428: 15000,    // 15s
+            440: 120000,   // 2 min
+            404: 30000,    // 30s
+            515: 8000,     // 8s
+        };
+
+        const baseDelay = baseDelays[statusCode] || 15000;
+        
+        // Backoff exponencial: delay * 2^attempt (max 5 minutos)
+        const exponentialDelay = Math.min(baseDelay * Math.pow(1.5, backoff.attempt - 1), 300000);
+        
+        // Reset después de 5 minutos sin intentos
+        const timeSinceLastAttempt = Date.now() - (backoff.lastAttempt || 0);
+        if (timeSinceLastAttempt > 300000) {
+            backoff.attempt = 0;
+            this.reconnectBackoff.set(sessionIndex, backoff);
+        }
+
+        return exponentialDelay;
+    }
+
+    /**
+     * Resetear backoff después de reconexión exitosa
+     */
+    _resetBackoff(sessionIndex) {
+        this.reconnectBackoff.set(sessionIndex, { attempt: 0, lastAttempt: null });
+        this.reconnectionAttempts.delete(sessionIndex);
+    }
+
+    /**
+     * Iniciar keep-alive activo para una sesión
+     * Envía ping periódico para mantener conexión viva
+     */
+    _startKeepAlive(sessionIndex) {
+        // Limpiar intervalo anterior si existe
+        this._stopKeepAlive(sessionIndex);
+
+        const interval = setInterval(async () => {
+            const sock = this.sockets.get(sessionIndex);
+            if (!sock || !this.connected.get(sessionIndex)) {
+                this._stopKeepAlive(sessionIndex);
+                return;
+            }
+
+            try {
+                // Enviar presencia para mantener alive
+                await sock.sendPresence('available').catch(() => {});
+                log('debug', `Keep-alive sent to S${sessionIndex}`, sessionIndex);
+            } catch (err) {
+                log('warn', `Keep-alive failed for S${sessionIndex}: ${err.message}`, sessionIndex);
+            }
+        }, this.keepAliveMs);
+
+        this.keepAliveIntervals.set(sessionIndex, interval);
+    }
+
+    /**
+     * Detener keep-alive
+     */
+    _stopKeepAlive(sessionIndex) {
+        const interval = this.keepAliveIntervals.get(sessionIndex);
+        if (interval) {
+            clearInterval(interval);
+            this.keepAliveIntervals.delete(sessionIndex);
+        }
+    }
+
+    /**
+     * Iniciar watchdog para detectar sesiones colgadas
+     */
+    _startWatchdog(sessionIndex) {
+        // Limpiar watchdog anterior
+        this._stopWatchdog(sessionIndex);
+
+        let lastMessageTime = Date.now();
+
+        const interval = setInterval(async () => {
+            const sock = this.sockets.get(sessionIndex);
+            if (!sock) {
+                this._stopWatchdog(sessionIndex);
+                return;
+            }
+
+            // Verificar si la conexión está responsive
+            const now = Date.now();
+            const timeSinceLastContact = now - lastMessageTime;
+
+            if (timeSinceLastContact > this.watchdogTimeoutMs) {
+                log('warn', `S${sessionIndex} sin actividad por ${Math.round(timeSinceLastContact/1000)}s. Verificando conexión...`, sessionIndex);
+                
+                try {
+                    // Forzar verificación con un query simple
+                    await sock.fetchContacts(1).then(() => {
+                        lastMessageTime = Date.now(); // Actualizar si responde
+                    }).catch(() => {
+                        // No respondió - puede estar colgada
+                        log('warn', `S${sessionIndex} no responde. Reconectando...`, sessionIndex);
+                        this._startSession(sessionIndex);
+                    });
+                } catch (err) {
+                    log('warn', `Watchdog error S${sessionIndex}: ${err.message}`, sessionIndex);
+                }
+            }
+        }, this.watchdogTimeoutMs / 2); // Verificar cada mitad del timeout
+
+        this.watchdogIntervals.set(sessionIndex, interval);
+    }
+
+    /**
+     * Detener watchdog
+     */
+    _stopWatchdog(sessionIndex) {
+        const interval = this.watchdogIntervals.get(sessionIndex);
+        if (interval) {
+            clearInterval(interval);
+            this.watchdogIntervals.delete(sessionIndex);
+        }
+    }
+
+    /**
+     * Marcar sesión como closing para evitar restart loops
+     */
+    _markAsClosing(sessionIndex, durationMs = 30000) {
+        this.closingSessions.set(sessionIndex, Date.now() + durationMs);
+        
+        // Auto-limpiar después del duration
+        setTimeout(() => {
+            this.closingSessions.delete(sessionIndex);
+        }, durationMs + 5000);
+    }
+
+    /**
+     * Verificar si sesión está en proceso de cierre
+     */
+    _isClosing(sessionIndex) {
+        const closingTime = this.closingSessions.get(sessionIndex);
+        if (!closingTime) return false;
+        return Date.now() < closingTime;
+    }
+
+    /**
+     * Cleanup completo de todos los intervalos
+     */
+    cleanupAll() {
+        // Limpiar keep-alives
+        for (const sessionIndex of this.keepAliveIntervals.keys()) {
+            this._stopKeepAlive(sessionIndex);
+        }
+        
+        // Limpiar watchdogs
+        for (const sessionIndex of this.watchdogIntervals.keys()) {
+            this._stopWatchdog(sessionIndex);
+        }
+        
+        // Limpiar backoffs
+        this.reconnectBackoff.clear();
+        
+        log('info', 'SessionManager cleanup completed');
     }
 }
 

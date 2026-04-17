@@ -13,6 +13,12 @@ class Database {
             return false;
         }
 
+        // Validate URI format
+        if (!this.uri.startsWith('mongodb') && !this.uri.startsWith('mongodb+srv')) {
+            log('error', 'Invalid MongoDB URI format. Must start with "mongodb" or "mongodb+srv". Cloud storage disabled.');
+            return false;
+        }
+
         try {
             await mongoose.connect(this.uri, {
                 // Modern Mongoose options are default, but you can add more if needed

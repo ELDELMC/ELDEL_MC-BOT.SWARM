@@ -10,6 +10,8 @@
 
 import { log } from '../core/Logger.js';
 import sharedData from '../core/SharedData.js';
+import fs from 'fs';
+import path from 'path';
 
 // Global state: Map<senderId → { active: bool, lastActivity: timestamp, count: number }>
 const orderModeUsers = new Map();
@@ -170,6 +172,12 @@ export async function processOrderModeMessage(sock, chatId, senderId, messageTex
   // Load existing recupera2 database (synchronous call)
   let existingNumbers = new Set();
   try {
+    // Ensure directory exists before reading
+    const dbDir = path.join(process.cwd(), 'db', 'grupos_clonados');
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
+    
     const fileData = sharedData.read('grupos_clonados/recupera2.json', []);
     if (Array.isArray(fileData)) {
       existingNumbers = new Set(fileData);

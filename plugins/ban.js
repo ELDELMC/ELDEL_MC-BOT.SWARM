@@ -44,11 +44,14 @@ export default {
             return list;
         });
 
-        const wasBanned = banned.includes(userToBan);
+        const wasAlreadyBanned = banned.length > 0 && banned.includes(userToBan) && 
+            banned.indexOf(userToBan) < banned.length - 1;
         const userTag = `@${userToBan.split('@')[0]}`;
 
         await sock.sendMessage(chatId, {
-            text: reply(`Usuario ${userTag} ha sido baneado del bot.`),
+            text: reply(wasAlreadyBanned 
+                ? `Usuario ${userTag} ya estaba baneado.`
+                : `Usuario ${userTag} ha sido baneado del bot.`),
             mentions: [userToBan],
         }, { quoted: message });
     },

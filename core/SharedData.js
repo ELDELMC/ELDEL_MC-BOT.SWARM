@@ -31,12 +31,12 @@ class SharedData {
             fs.mkdirSync(DATA_DIR, { recursive: true });
         }
 
-        // Cleanup old cache entries every 5 minutes
+        // Cleanup old cache entries every 2 minutes (reduced from 5)
         this._cleanupInterval = setInterval(() => {
             const now = Date.now();
             let cleaned = 0;
             for (const [file, ts] of this.cacheTimestamps.entries()) {
-                if (now - ts > 600000) { // 10 min
+                if (now - ts > 300000) { // 5 min (reduced from 10)
                     this.cache.delete(file);
                     this.cacheTimestamps.delete(file);
                     cleaned++;
@@ -45,7 +45,7 @@ class SharedData {
             if (cleaned > 0) {
                 log('debug', `SharedData: cleaned ${cleaned} old cache entries`);
             }
-        }, 300000);
+        }, 120000); // 2 minutes
     }
 
     /**
@@ -169,6 +169,17 @@ class SharedData {
             fs.writeFileSync(fp, JSON.stringify(defaultValue, null, 2));
             log('info', `Created data file: ${filename}`);
         }
+    }
+
+    /**
+     * Destroy instance - cleanup intervals
+     */
+    destroy() {
+        if (this._cleanupInterval) {
+            clearInterval(this._cleanupInterval);
+        }
+        this.cache.clear();
+        this.cacheTimestamps.clear();
     }
 }
 
