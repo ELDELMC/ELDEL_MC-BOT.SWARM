@@ -519,8 +519,10 @@ class SessionManager {
                 });
             }
             
-            // ─── USAR BACKOFF EXPONENCIAL ───
-            const backoffDelay = this._calculateBackoff(sessionIndex, statusCode);
+            // ─── USAR DELAY INTELIGENTE ───
+            // Si tiene credenciales = reintento rápido
+            // Si NO tiene credenciales = delay largo para QR
+            const delayMs = this._getReconnectDelay(sessionIndex, statusCode);
             
             // Strategic reconnect logic based on error codes
             const criticalErrors = [DisconnectReason.loggedOut, 404];
@@ -544,25 +546,25 @@ class SessionManager {
                         fs.mkdirSync(sessionPath, { recursive: true });
                     } catch (_) {}
                     this.awaitingPairing.add(sessionIndex);
-                    log('info', `Sesión limpiada. Re-intentando inicio para vinculación...`, sessionIndex);
+                    log('info', `Sesión limpiada. Re-intentando inicio para vinculación (delay: ${delayMs/1000}s)...`, sessionIndex);
                     
-                    await delay(10000);
+                    await delay(delayMs);
                     await this._startSession(sessionIndex);
                     return;
                 } else {
                     // Registered but got logged out - try to recover WITHOUT clearing session
-                    log('warn', `Sesión ${sessionIndex} desconectada pero registrada. Reintentando sin borrar credenciales (backoff: ${backoffDelay/1000}s)...`, sessionIndex);
-                    this._markAsClosing(sessionIndex, backoffDelay);
-                    await delay(backoffDelay);
+                    log('warn', `Sesión ${sessionIndex} desconectada pero registrada. Reintentando sin borrar credenciales (delay: ${delayMs/1000}s)...`, sessionIndex);
+                    this._markAsClosing(sessionIndex, delayMs);
+                    await delay(delayMs);
                     await this._startSession(sessionIndex);
                     return;
                 }
             }
 
             if (statusCode === 440) {
-                log('warn', `Conflicto detectado (440). Esperando backoff (${backoffDelay/1000}s)...`, sessionIndex);
-                this._markAsClosing(sessionIndex, backoffDelay);
-                await delay(backoffDelay);
+                log('warn', `Conflicto detectado (440). Esperando delay (${delayMs/1000}s)...`, sessionIndex);
+                this._markAsClosing(sessionIndex, delayMs);
+                await delay(delayMs);
                 await this._startSession(sessionIndex);
                 return;
             }
@@ -574,23 +576,23 @@ class SessionManager {
                 }
 
                 if (isRegistered && (statusCode === 401 || statusCode === 428)) {
-                    // NO borrar sesión - usar backoff exponencial
-                    log('warn', `Conflicto (${statusCode}). Backoff: ${backoffDelay/1000}s sin borrar sesión...`, sessionIndex);
-                    this._markAsClosing(sessionIndex, backoffDelay);
-                    await delay(backoffDelay);
+                    // Sesión registrada - delay rápido
+                    log('warn', `Conflicto (${statusCode}). Delay: ${delayMs/1000}s sin borrar sesión...`, sessionIndex);
+                    this._markAsClosing(sessionIndex, delayMs);
+                    await delay(delayMs);
                     await this._startSession(sessionIndex);
                 } else if (isRegistered && (statusCode === 515 || statusCode === DisconnectReason.restartRequired)) {
                     log('info', `Reinicio automático de sesión registrada...`, sessionIndex);
                     await delay(8000);
                     await this._startSession(sessionIndex);
                 } else {
-                    // Not registered or critical recovery
+                    // Primera vinculación - delay largo
                     if (statusCode === 515 || statusCode === DisconnectReason.restartRequired) {
-                        log('info', `Stream error durante vinculación. Reiniciando sin limpiar sesión...`, sessionIndex);
-                        await delay(15000);
+                        log('info', `Stream error durante vinculación. Reiniciando (delay: ${delayMs/1000}s)...`, sessionIndex);
+                        await delay(delayMs);
                         await this._startSession(sessionIndex);
                     } else {
-                        log('info', `Error de recuperación (${statusCode}). Reiniciando pairing...`, sessionIndex);
+                        log('info', `Error de recuperación (${statusCode}). Reiniciando pairing (delay: ${delayMs/1000}s)...`, sessionIndex);
                         const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
                         try {
                             fs.rmSync(sessionPath, { recursive: true, force: true });
@@ -773,10 +775,61 @@ class SessionManager {
     // ═══════════════════════════════════════════════════════════
 
     /**
-     * Calcular delay de reconexión con backoff exponencial
-     * @param {number} sessionIndex 
-     * @param {number} statusCode 
-     * @returns {number} delay en ms
+     * Verificar si una sesión tiene credenciales válidas guardadas
+     * @returns {boolean} true si la sesión ya está vinculada
+     */
+    _hasExistingCredentials(sessionIndex) {
+        const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
+        const credsPath = path.join(sessionPath, 'creds.json');
+        
+        try {
+            if (fs.existsSync(credsPath)) {
+                const stats = fs.statSync(credsPath);
+                if (stats.size > 100) {
+                    // Verificar que sea JSON válido
+                    const raw = fs.readFileSync(credsPath, 'utf-8');
+                    const creds = JSON.parse(raw);
+                    return creds?.registered === true;
+                }
+            }
+        } catch (_) { /* ignore */ }
+        
+        return false;
+    }
+
+    /**
+     * Calcular delay de reconexión basándose en si hay credenciales o no
+     * - Si hay credenciales (sesión ya была): reintento rápido
+     * - Si no hay credenciales (primer inicio): delay largo para QR
+     */
+    _getReconnectDelay(sessionIndex, statusCode) {
+        const hasCredentials = this._hasExistingCredentials(sessionIndex);
+        
+        if (hasCredentials) {
+            // Sesión ya была vinculada - reintento rápido como antes
+            return this._calculateBackoff(sessionIndex, statusCode);
+        } else {
+            // Primera vinculación - delay largo para escanear QR
+            const longDelays = {
+                401: 60000,    // 1 min
+                428: 30000,    // 30s
+                440: 120000,   // 2 min
+                404: 60000,    // 1 min
+                515: 45000,    // 45s
+            };
+            return longDelays[statusCode] || 60000;
+        }
+    }
+
+    /**
+     * Verificar si es primer inicio (sin credenciales)
+     */
+    _isFirstTimeSetup(sessionIndex) {
+        return !this._hasExistingCredentials(sessionIndex);
+    }
+
+    /**
+     * Calcular delay de reconexión con backoff exponencial (solo para sesiones ya vinculadas)
      */
     _calculateBackoff(sessionIndex, statusCode) {
         const backoff = this.reconnectBackoff.get(sessionIndex) || { attempt: 0 };
