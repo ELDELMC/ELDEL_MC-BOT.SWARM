@@ -147,6 +147,51 @@ class SessionManager {
     }
 
     /**
+     * Clean up stale session locks from previous crashes or process terminations.
+     * Called at startup to prevent locks from blocking session initialization.
+     */
+    _cleanupStaleLocks() {
+        try {
+            if (!fs.existsSync(this.sessionsDir)) return;
+            
+            const sessionFolders = fs.readdirSync(this.sessionsDir);
+            let cleaned = 0;
+            
+            for (const folder of sessionFolders) {
+                if (!folder.startsWith('session-')) continue;
+                
+                const lockFile = path.join(this.sessionsDir, folder, '.session.lock');
+                
+                try {
+                    if (fs.existsSync(lockFile)) {
+                        const lockData = JSON.parse(fs.readFileSync(lockFile, 'utf-8'));
+                        const age = Date.now() - lockData.timestamp;
+                        
+                        // If lock is older than 10 minutes, it's stale
+                        if (age > 600000) {
+                            fs.unlinkSync(lockFile);
+                            cleaned++;
+                            log('info', `Cleaned stale lock from ${folder} (age: ${(age/1000/60).toFixed(1)}min)`);
+                        }
+                    }
+                } catch (_) {
+                    // If lock file is corrupted, remove it
+                    try {
+                        fs.unlinkSync(lockFile);
+                        cleaned++;
+                    } catch (__) { /* ignore */ }
+                }
+            }
+            
+            if (cleaned > 0) {
+                log('info', `Cleaned up ${cleaned} stale session lock(s) at startup`);
+            }
+        } catch (err) {
+            log('warn', `Error cleaning up stale locks: ${err.message}`);
+        }
+    }
+
+    /**
      * Initialize and start all sessions.
      * SECUENCIAL: Solo inicia siguiente sesión cuando la anterior esté conectada.
      */
@@ -157,6 +202,9 @@ class SessionManager {
         if (!fs.existsSync(this.sessionsDir)) {
             fs.mkdirSync(this.sessionsDir, { recursive: true });
         }
+
+        // Clean up stale session locks before starting
+        this._cleanupStaleLocks();
 
         log('session', `Starting ${count} sessions sequentially...`);
 
@@ -591,7 +639,18 @@ class SessionManager {
                     const criticalDeleteErrors = [404, 428];
                     if (criticalDeleteErrors.includes(statusCode)) {
                         // Error temporal - solo esperar y reintentar SIN borrar sesión
-                        log('warn', `Error temporal ${statusCode}. Reintentando sin borrar sesión (delay: ${delayMs/1000}s)...`, sessionIndex);
+                        // PERO: verificar límite de reintentos para pairing
+                        const backoff = this.reconnectBackoff.get(sessionIndex) || { pairingAttempts: 0 };
+                        const pairingAttempts = (backoff.pairingAttempts || 0);
+                        const maxPairingAttempts = 8; // Máximo 8 intentos de pairing fallidos
+                        
+                        if (pairingAttempts >= maxPairingAttempts) {
+                            log('error', `S${sessionIndex} alcanzó límite de reintentos de pairing (${pairingAttempts}/${maxPairingAttempts}). Paused. Requiere intervención manual.`, sessionIndex);
+                            this.awaitingPairing.add(sessionIndex);
+                            return;
+                        }
+                        
+                        log('warn', `Error temporal ${statusCode} (intento ${pairingAttempts + 1}/${maxPairingAttempts}). Reintentando sin borrar sesión (delay: ${delayMs/1000}s)...`, sessionIndex);
                         this._markAsClosing(sessionIndex, delayMs);
                         await delay(delayMs);
                         await this._startSession(sessionIndex);
@@ -808,7 +867,7 @@ class SessionManager {
     /**
      * Calcular delay de reconexión basándose en si hay credenciales o no
      * - Si hay credenciales (sesión ya была): reintento rápido
-     * - Si no hay credenciales (primer inicio): delay largo para QR
+     * - Si no hay credenciales (primer inicio): delay largo para QR con backoff exponencial
      */
     _getReconnectDelay(sessionIndex, statusCode) {
         const hasCredentials = this._hasExistingCredentials(sessionIndex);
@@ -817,16 +876,43 @@ class SessionManager {
             // Sesión ya была vinculada - reintento rápido como antes
             return this._calculateBackoff(sessionIndex, statusCode);
         } else {
-            // Primera vinculación - delay largo para escanear QR
-            const longDelays = {
-                401: 60000,    // 1 min
-                428: 60000,    // 60s - aumentado para QR
-                440: 180000,   // 3 min
-                404: 60000,    // 1 min
-                515: 60000,   // 1 min
-            };
-            return longDelays[statusCode] || 60000;
+            // Primera vinculación - aplicar backoff exponencial también
+            return this._calculateBackoffForPairing(sessionIndex, statusCode);
         }
+    }
+
+    /**
+     * Backoff exponencial específico para primer pairing (sin credenciales)
+     * Evita reintentos agresivos cuando falla el código de pairing
+     */
+    _calculateBackoffForPairing(sessionIndex, statusCode) {
+        const backoff = this.reconnectBackoff.get(sessionIndex) || { attempt: 0, pairingAttempts: 0 };
+        backoff.pairingAttempts = (backoff.pairingAttempts || 0) + 1;
+        backoff.lastAttempt = Date.now();
+        this.reconnectBackoff.set(sessionIndex, backoff);
+
+        // Delays base por código de error - aumentado para pairing
+        const baseDelays = {
+            401: 120000,   // 2 min
+            428: 120000,   // 2 min (aumentado de 60s)
+            440: 300000,   // 5 min
+            404: 180000,   // 3 min
+            515: 120000,   // 2 min
+        };
+
+        const baseDelay = baseDelays[statusCode] || 120000;
+        
+        // Backoff exponencial más agresivo para pairing: delay * 1.8^attempt (max 10 minutos)
+        const exponentialDelay = Math.min(baseDelay * Math.pow(1.8, backoff.pairingAttempts - 1), 600000);
+        
+        // Reset después de 10 minutos sin intentos
+        const timeSinceLastAttempt = Date.now() - (backoff.lastAttempt || 0);
+        if (timeSinceLastAttempt > 600000) {
+            backoff.pairingAttempts = 0;
+            this.reconnectBackoff.set(sessionIndex, backoff);
+        }
+
+        return exponentialDelay;
     }
 
     /**
