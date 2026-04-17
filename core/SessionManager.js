@@ -418,10 +418,11 @@ class SessionManager {
             }
 
             const pairingNumbers = config.pairingNumbers || [];
+            const deviceNameValue = config.deviceNames[sessionIndex - 1];
             const availableNumber = process.env[`PAIRING_NUMBER_${sessionIndex}`] ||
-                process.env[config.deviceNames[sessionIndex - 1]] ||
                 pairingNumbers[sessionIndex - 1] ||
-                config.ownerNumber;
+                config.ownerNumber ||
+                (deviceNameValue !== `Session ${sessionIndex}` ? deviceNameValue : null);
 
             if (availableNumber && !this.pairingInProgress.has(sessionIndex)) {
                 // Start pairing in background
@@ -624,12 +625,11 @@ class SessionManager {
 
         try {
             const pairingNumbers = config.pairingNumbers || [];
-            // Prioritize individual variables like BOT_ROTO, PERSONAL, etc
-            // Fallback to comma separated list or owner number
+            const deviceNameValue = config.deviceNames[sessionIndex - 1];
             let phoneNumberInput = process.env[`PAIRING_NUMBER_${sessionIndex}`] ||
-                                 process.env[config.deviceNames[sessionIndex - 1]] ||
                                  pairingNumbers[sessionIndex - 1] ||
-                                 config.ownerNumber;
+                                 config.ownerNumber ||
+                                 (deviceNameValue !== `Session ${sessionIndex}` ? deviceNameValue : null);
 
             const doPairing = async (num, attempt = 1) => {
                 // Stop if socket was replaced or closed AND we're not expecting reconnection
