@@ -44,6 +44,8 @@ class SessionManager {
         this.pairingInProgress = new Set();
         // Timestamp when pairing code was generated
         this.pairingCodeGeneratedAt = null;
+        // Track if session was ever successfully connected (for first-time vs reconnection logic)
+        this.everConnected = new Map();
         // Lock timeout: if a lock is older than this, it's considered stale (5 minutes)
         this.lockTimeoutMs = 5 * 60 * 1000;
         // Track reconnection attempts for error reporting
@@ -495,22 +497,26 @@ class SessionManager {
 
             log('success', `🎉 CONECTADA! Teléfono: ${phoneNum}`, sessionIndex);
             console.log(`\n✅ Session ${sessionIndex} conectada exitosamente!\n`);
-            
+
+            // ─── MARCAR QUE ESTA SESIÓN YA SE CONECTÓ AL MENOS UNA VEZ ───
+            // Esto cambia la lógica de reconexión: ahora será rápida
+            this.everConnected.set(sessionIndex, true);
+
             // Reset authState tracking
             if (this.awaitingPairing.has(sessionIndex)) {
                 this.awaitingPairing.delete(sessionIndex);
             }
-            
+
             // Reset reconnection attempt counter on successful connection
             this._resetBackoff(sessionIndex);
             this.reconnectionAttempts.delete(sessionIndex);
-            
+
             // Iniciar keep-alive activo
             this._startKeepAlive(sessionIndex);
-            
+
             // Iniciar watchdog
             this._startWatchdog(sessionIndex);
-            
+
             log('info', `Keep-alive y watchdog activados para S${sessionIndex}`, sessionIndex);
         }
 
@@ -880,25 +886,28 @@ class SessionManager {
     }
 
     /**
-     * Calcular delay de reconexión basándose en si hay credenciales o no
-     * - Si hay credenciales (sesión ya была): reintento rápido
-     * - Si no hay credenciales (primer inicio): delay largo para QR con backoff exponencial
+     * Calcular delay de reconexión basándose en si ya se conectó alguna vez
+     * - Si NUNCA se conectó (primera vez): delays MUY largos (5-60 min) para dar tiempo a vincular
+     * - Si YA se conectó alguna vez: reconexión rápida (15s-2min)
      */
     _getReconnectDelay(sessionIndex, statusCode) {
+        const everConnected = this.everConnected.get(sessionIndex) === true;
         const hasCredentials = this._hasExistingCredentials(sessionIndex);
-        
-        if (hasCredentials) {
-            // Sesión ya была vinculada - reintento rápido como antes
+
+        if (everConnected || hasCredentials) {
+            // Sesión ya se conectó alguna vez - reconexión rápida
+            log('info', `S${sessionIndex} ya se conectó antes. Usando reconexión rápida.`, sessionIndex);
             return this._calculateBackoff(sessionIndex, statusCode);
         } else {
-            // Primera vinculación - aplicar backoff exponencial también
+            // Primera vez - delays MUY largos para dar tiempo a vincular
+            log('info', `S${sessionIndex} primera vinculación. Usando delays largos.`, sessionIndex);
             return this._calculateBackoffForPairing(sessionIndex, statusCode);
         }
     }
 
     /**
-     * Backoff exponencial específico para primer pairing (sin credenciales)
-     * Evita reintentos agresivos cuando falla el código de pairing
+     * Backoff específico para primer pairing (sin credenciales)
+     * DELAYS MUY LARGOS entre intentos para dar tiempo a vincular manualmente
      */
     _calculateBackoffForPairing(sessionIndex, statusCode) {
         const backoff = this.reconnectBackoff.get(sessionIndex) || { attempt: 0, pairingAttempts: 0 };
@@ -906,28 +915,41 @@ class SessionManager {
         backoff.lastAttempt = Date.now();
         this.reconnectBackoff.set(sessionIndex, backoff);
 
-        // Delays base por código de error - aumentado para pairing
-        const baseDelays = {
-            401: 180000,   // 3 min
-            428: 180000,  // 3 min
-            440: 300000,  // 5 min
-            404: 180000,  // 3 min
-            515: 180000,  // 3 min
+        // DELAYS MUY LARGOS para primera vinculación (dar tiempo a vincular)
+        // Progresión: 5min, 7min, 10min, 15min, 20min, 30min, etc.
+        const longDelays = [
+            300000,   // 5 min - primer intento
+            420000,   // 7 min - segundo intento
+            600000,   // 10 min - tercer intento
+            900000,   // 15 min - cuarto intento
+            1200000,  // 20 min - quinto intento
+            1800000,  // 30 min - sexto intento
+            2400000,  // 40 min - séptimo intento
+            3600000,  // 60 min - octavo intento
+        ];
+
+        // Si hay errores específicos, usar delays más largos
+        const errorMultipliers = {
+            428: 1.5,   // Connection Terminated - 50% más tiempo
+            404: 2.0,   // Not Found - doble tiempo
+            401: 1.0,   // Unauthorized - tiempo normal
+            515: 1.2,   // Stream Error - 20% más tiempo
         };
 
-        const baseDelay = baseDelays[statusCode] || 120000;
-        
-        // Backoff exponencial más agresivo para pairing: delay * 1.8^attempt (max 10 minutos)
-        const exponentialDelay = Math.min(baseDelay * Math.pow(1.8, backoff.pairingAttempts - 1), 600000);
-        
-        // Reset después de 10 minutos sin intentos
+        const baseDelay = longDelays[Math.min(backoff.pairingAttempts - 1, longDelays.length - 1)] || 3600000;
+        const multiplier = errorMultipliers[statusCode] || 1.0;
+        const finalDelay = Math.min(baseDelay * multiplier, 7200000); // Max 2 horas
+
+        log('info', `Primera vinculación S${sessionIndex}: intento ${backoff.pairingAttempts}, esperando ${Math.round(finalDelay/60000)} minutos antes de reintentar...`, sessionIndex);
+
+        // Reset después de 2 horas sin intentos
         const timeSinceLastAttempt = Date.now() - (backoff.lastAttempt || 0);
-        if (timeSinceLastAttempt > 600000) {
+        if (timeSinceLastAttempt > 7200000) {
             backoff.pairingAttempts = 0;
             this.reconnectBackoff.set(sessionIndex, backoff);
         }
 
-        return exponentialDelay;
+        return finalDelay;
     }
 
     /**
@@ -1121,13 +1143,17 @@ class SessionManager {
             
             const deviceName = config.deviceNames[sessionIndex - 1] || `S${sessionIndex}`;
             console.log(`\n╔══════════════════════════════════════════╗`);
-            console.log(`║  CÓDIGO DE VINCULACIÓN - SESIÓN ${sessionIndex}     ║`);
-            console.log(`╚═══════════════════════════════��══════════╝`);
+            console.log(`║  PRIMERA VINCULACIÓN - SESIÓN ${sessionIndex}      ║`);
+            console.log(`╚══════════════════════════════════════════╝`);
             console.log(`📱 Número: ${phoneNumber}`);
             console.log(`🔢 Código: ${formattedCode}`);
             console.log(`⏱️ Tienes 5 minutos para vincular en WhatsApp`);
-            console.log(`   WhatsApp → Ajustes → Dispositivos vinculados → Vincular dispositivo\n`);
-            console.log(`⚠️ NO reinicies el bot mientras esperas el código!\n`);
+            console.log(`   1. Abre WhatsApp`);
+            console.log(`   2. Ve a Configuración → Dispositivos vinculados`);
+            console.log(`   3. Vincular dispositivo → Ingresa el código`);
+            console.log(`\n⚠️ IMPORTANTE: No reinicies el bot mientras esperas!`);
+            console.log(`⚠️ Si no vinculas en 5 min, el bot esperará 5-10 minutos antes de generar nuevo código.`);
+            console.log(`⚠️ Una vez conectado, la reconexión será automática y rápida.\n`);
             
             log('success', `Código generado: ${formattedCode}`, sessionIndex);
             
