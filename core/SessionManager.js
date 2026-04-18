@@ -586,8 +586,9 @@ class SessionManager {
 
             if (isWaitingForPairing) {
                 const remainingTime = 300000 - pairingAge;
-                log('info', `VENTANA DE VINCULACIÓN ACTIVA: Código válido por ${Math.round(remainingTime/1000)}s más. Ignorando error ${statusCode}...`, sessionIndex);
-                // NO hacer nada más - el método _requestPairingCodeDirect maneja la espera completa
+                log('info', `VENTANA DE VINCULACIÓN ACTIVA: Código válido por ${Math.round(remainingTime/1000)}s más.`, sessionIndex);
+                log('info', `ERROR ${statusCode} IGNORADO COMPLETAMENTE - Esperando que vincules el código.`, sessionIndex);
+                // CRÍTICO: NO hacer NADA más durante la ventana de vinculación
                 return;
             }
 
@@ -757,11 +758,48 @@ class SessionManager {
                     log('info', `Attempting pairing for Session ${sessionIndex} with: ${num}`, sessionIndex);
                     let code = await sock.requestPairingCode(num);
                     code = code?.match(/.{1,4}/g)?.join('-') || code;
+
+                    // ─── CÓDIGO GENERADO EXITOSAMENTE - MARCAR VENTANA ACTIVA ───
+                    this.pairingCodeGeneratedAt = Date.now();
                     log('success', `Pairing code generated: ${code}`, sessionIndex);
+
+                    // Mostrar mensaje mejorado
                     const deviceName = config.deviceNames[sessionIndex - 1] || `S${sessionIndex}`;
-                    console.log(`\n2. Código de Vinculación generado para [${deviceName}]: ${code}`);
-                    console.log(`   📱 Vincular en WhatsApp → Configuración → Dispositivos vinculados → Vincular dispositivo`);
-                    console.log(`   ⏱️  Tienes 5 minutos para ingresar el código: ${code}\n`);
+                    console.log(`\n╔══════════════════════════════════════════╗`);
+                    console.log(`║  PRIMERA VINCULACIÓN - SESIÓN ${sessionIndex}      ║`);
+                    console.log(`╚══════════════════════════════════════════╝`);
+                    console.log(`📱 Número: ${num}`);
+                    console.log(`🔢 Código: ${code}`);
+                    console.log(`⏱️ Tienes 5 minutos para vincular en WhatsApp`);
+                    console.log(`   1. Abre WhatsApp`);
+                    console.log(`   2. Ve a Configuración → Dispositivos vinculados`);
+                    console.log(`   3. Vincular dispositivo → Ingresa el código`);
+                    console.log(`\n✅ SEGURIDAD: Durante estos 5 minutos, cualquier error de conexión será ignorado.`);
+                    console.log(`⚠️ No reinicies el bot - el código permanecerá activo!`);
+                    console.log(`⚠️ Si no vinculas en 5 min, esperará 5-60 minutos antes del próximo código.`);
+                    console.log(`⚠️ Una vez conectado, la reconexión será automática y rápida.\n`);
+
+                    // Esperar 5 minutos completos ignorando errores
+                    const waitTime = 300000; // 5 minutos
+                    const startWait = Date.now();
+
+                    log('info', `VENTANA DE VINCULACIÓN ACTIVA: Esperando 5 minutos para que vincules el código...`, sessionIndex);
+
+                    while (Date.now() - startWait < waitTime) {
+                        await delay(5000); // Verificar cada 5 segundos
+
+                        // Si ya se connectó, salir exitosamente
+                        if (this.connected.get(sessionIndex)) {
+                            log('success', `S${sessionIndex} VINCULACIÓN EXITOSA! Código usado correctamente.`, sessionIndex);
+                            this.pairingCodeGeneratedAt = null;
+                            return;
+                        }
+                    }
+
+                    // Timeout - código expiró
+                    log('warn', `VENTANA DE VINCULACIÓN EXPIRADA: Código ya no es válido.`, sessionIndex);
+                    this.pairingCodeGeneratedAt = null;
+
                     // Success - don't retry until connection closes
                     return;
                 } catch (err) {
@@ -1133,29 +1171,52 @@ class SessionManager {
             
             log('success', `Código generado: ${formattedCode}`, sessionIndex);
             
-            // Mantener el socket vivo esperando vinculación por 5 minutos
-            // No hacer nada más - solo esperar a que el usuario vincule
+            // Mantener la VENTANA DE VINCULACIÓN ACTIVA por 5 minutos
+            // Durante estos 5 minutos, cualquier error de conexión será ignorado
+            // Solo después de 5 minutos completos se considera expirado el código
             const waitTime = 300000; // 5 minutos
             const startWait = Date.now();
-            
-            while (Date.now() - startWait < waitTime) {
-                await delay(5000); // Verificar cada 5 segundos
-                
-                // Si ya se connectó, salir
-                if (this.connected.get(sessionIndex)) {
-                    log('info', `S${sessionIndex} vinculada exitosamente!`, sessionIndex);
-                    return;
-                }
-                
-                // Si el socket ya no existe, salir
+
+            log('info', `VENTANA DE VINCULACIÓN ACTIVA: Esperando 5 minutos para que vincules el código...`, sessionIndex);
+
+                    while (Date.now() - startWait < waitTime) {
+                        await delay(5000); // Verificar cada 5 segundos
+
+                        // Si ya se connectó, salir exitosamente
+                        if (this.connected.get(sessionIndex)) {
+                            log('success', `S${sessionIndex} VINCULACIÓN EXITOSA! Código usado correctamente.`, sessionIndex);
+                            this.pairingCodeGeneratedAt = null; // Limpiar porque se conectó
+                            return;
+                        }
+
+                        // Si el socket se cerró, NO salir - mantener ventana activa
+                        // Los errores de conexión durante estos 5 minutos deben ser ignorados
+                        // El código sigue siendo válido hasta que pasen 5 minutos
+                        if (!this.sockets.has(sessionIndex)) {
+                            log('warn', `Socket cerrado durante ventana de vinculación, pero código sigue activo...`, sessionIndex);
+                            // NO salir - continuar esperando los 5 minutos completos
+                        }
+
+                        // Log de progreso cada minuto
+                        const elapsed = Date.now() - startWait;
+                        if (elapsed % 60000 < 5000) { // Cada minuto aproximadamente
+                            const remaining = Math.round((waitTime - elapsed) / 1000 / 60);
+                            log('info', `Esperando vinculación: ${remaining} minutos restantes...`, sessionIndex);
+                        }
+                    }
+
+                // Si el socket se cerró, NO salir - mantener ventana activa
+                // Los errores de conexión durante estos 5 minutos deben ser ignorados
+                // El código sigue siendo válido hasta que pasen 5 minutos
                 if (!this.sockets.has(sessionIndex)) {
-                    log('info', `Socket closed, will retry normally`, sessionIndex);
-                    return;
+                    log('warn', `Socket cerrado durante ventana de vinculación, pero código sigue activo...`, sessionIndex);
+                    // NO salir - continuar esperando los 5 minutos completos
                 }
             }
-            
-            // Timeout después de 5 minutos
-            log('warn', `Tiempo de vinculación agotado (5 min). Cerrando...`, sessionIndex);
+
+            // Timeout después de 5 minutos - código expiró
+            log('warn', `VENTANA DE VINCULACIÓN EXPIRADA: Código ya no es válido (5 min pasaron).`, sessionIndex);
+            this.pairingCodeGeneratedAt = null; // Ahora sí limpiar
             
         } catch (err) {
             log('error', `Error generando código: ${err.message}`, sessionIndex);
