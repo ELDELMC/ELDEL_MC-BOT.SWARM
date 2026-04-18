@@ -577,11 +577,25 @@ class SessionManager {
                 });
             }
             
+            // ─── CRÍTICO: SI ESTAMOS EN VENTANA DE VINCULACIÓN, IGNORAR TODOS LOS ERRORES ───
+            // Durante los 5 minutos que el código de vinculación está activo,
+            // cualquier error de conexión debe ser ignorado completamente.
+            // Solo después de 5 minutos se decide si reconectar o limpiar.
+            const pairingAge = this.pairingCodeGeneratedAt ? (Date.now() - this.pairingCodeGeneratedAt) : 0;
+            const isWaitingForPairing = pairingAge > 0 && pairingAge < 300000; // 5 minutos
+
+            if (isWaitingForPairing) {
+                const remainingTime = 300000 - pairingAge;
+                log('info', `VENTANA DE VINCULACIÓN ACTIVA: Código válido por ${Math.round(remainingTime/1000)}s más. Ignorando error ${statusCode}...`, sessionIndex);
+                // NO hacer nada más - el método _requestPairingCodeDirect maneja la espera completa
+                return;
+            }
+
             // ─── USAR DELAY INTELIGENTE ───
             // Si tiene credenciales = reintento rápido
             // Si NO tiene credenciales = delay largo para QR
             const delayMs = this._getReconnectDelay(sessionIndex, statusCode);
-            
+
             // Strategic reconnect logic based on error codes
             const criticalErrors = [DisconnectReason.loggedOut, 404];
             const recoveryErrors = [515, 428, 401, DisconnectReason.restartRequired];
@@ -644,53 +658,13 @@ class SessionManager {
                     await delay(8000);
                     await this._startSession(sessionIndex);
                 } else {
-                    // Primera vinculación - delay largo sin borrar sesión para errores temporales
-                    const criticalDeleteErrors = [404, 428];
-                    if (criticalDeleteErrors.includes(statusCode)) {
-                        // Error temporal - solo esperar y reintentar SIN borrar sesión
-                        // PERO: verificar límite de reintentos para pairing
-                        const backoff = this.reconnectBackoff.get(sessionIndex) || { pairingAttempts: 0 };
-                        const pairingAttempts = (backoff.pairingAttempts || 0);
-                        const maxPairingAttempts = 8; // Máximo 8 intentos de pairing fallidos
-                        
-                        // Si el código fue generado hace menos de 5 minutos, esperar más
-                        const pairingAge = this.pairingCodeGeneratedAt ? (Date.now() - this.pairingCodeGeneratedAt) : 0;
-                        const isWaitingForPairing = pairingAge > 0 && pairingAge < 300000;
-                        
-                        if (isWaitingForPairing) {
-                            // Todavía esperamos que el usuario vincule - esperar más tiempo
-                            const remainingTime = 300000 - pairingAge;
-                            log('info', `Esperando vinculación (${Math.round(remainingTime/1000)}s restantes)...`, sessionIndex);
-                            await delay(Math.min(remainingTime, 300000));
-                            // No reiniciar - dejar que el proceso de vinculación continúe
-                            return;
-                        }
-                        
-                        if (pairingAttempts >= maxPairingAttempts) {
-                            log('error', `S${sessionIndex} alcanzó límite de reintentos de pairing (${pairingAttempts}/${maxPairingAttempts}). Paused. Requiere intervención manual.`, sessionIndex);
-                            this.awaitingPairing.add(sessionIndex);
-                            return;
-                        }
-                        
-                        log('warn', `Error temporal ${statusCode} (intento ${pairingAttempts + 1}/${maxPairingAttempts}). Reintentando sin borrar sesión (delay: ${delayMs/1000}s)...`, sessionIndex);
-                        this._markAsClosing(sessionIndex, delayMs);
-                        await delay(delayMs);
-                        await this._startSession(sessionIndex);
-                    } else if (statusCode === 515 || statusCode === DisconnectReason.restartRequired) {
-                        log('info', `Stream error durante vinculación. Reiniciando (delay: ${delayMs/1000}s)...`, sessionIndex);
-                        await delay(delayMs);
-                        await this._startSession(sessionIndex);
-                    } else {
-                        // Otros errores - borrar sesión y empezar de nuevo
-                        log('error', `Error crítico ${statusCode}. Limpiando sesión...`, sessionIndex);
-                        const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
-                        try {
-                            fs.rmSync(sessionPath, { recursive: true, force: true });
-                            fs.mkdirSync(sessionPath, { recursive: true });
-                        } catch (_) {}
-                        await delay(10000);
-                        await this._startSession(sessionIndex);
-                    }
+                    // Primera vinculación - aplicar lógica de reconexión normal con delays largos
+                    // Ya no hay lógica especial aquí porque los errores durante ventana de vinculación
+                    // se ignoran completamente arriba. Solo llega aquí después de 5 minutos.
+                    log('info', `Aplicando reconexión normal para primera vinculación (delay: ${delayMs/1000}s)...`, sessionIndex);
+                    this._markAsClosing(sessionIndex, delayMs);
+                    await delay(delayMs);
+                    await this._startSession(sessionIndex);
                 }
                 return;
             }
@@ -1152,8 +1126,9 @@ class SessionManager {
             console.log(`   1. Abre WhatsApp`);
             console.log(`   2. Ve a Configuración → Dispositivos vinculados`);
             console.log(`   3. Vincular dispositivo → Ingresa el código`);
-            console.log(`\n⚠️ IMPORTANTE: No reinicies el bot mientras esperas!`);
-            console.log(`⚠️ Si no vinculas en 5 min, el bot esperará 5-10 minutos antes de generar nuevo código.`);
+            console.log(`\n✅ SEGURIDAD: Durante estos 5 minutos, cualquier error de conexión será ignorado.`);
+            console.log(`⚠️ No reinicies el bot - el código permanecerá activo!`);
+            console.log(`⚠️ Si no vinculas en 5 min, esperará 5-60 minutos antes del próximo código.`);
             console.log(`⚠️ Una vez conectado, la reconexión será automática y rápida.\n`);
             
             log('success', `Código generado: ${formattedCode}`, sessionIndex);
