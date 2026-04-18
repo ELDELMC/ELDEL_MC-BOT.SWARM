@@ -478,9 +478,10 @@ class SessionManager {
 
             if (availableNumber) {
                 // Generate pairing code immediately using the number from .env
-                this._requestPairingCodeDirect(sessionIndex, sock, availableNumber).catch(err => {
-                    log('error', `Direct pairing error: ${err.message}`, sessionIndex);
-                });
+            // Este método espera 5 minutos completos, ignorando errores de conexión
+            this._requestPairingCodeDirect(sessionIndex, sock, availableNumber).catch(err => {
+                log('error', `Direct pairing error: ${err.message}`, sessionIndex);
+            });
             }
         }
 
