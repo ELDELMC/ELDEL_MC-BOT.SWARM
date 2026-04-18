@@ -1205,15 +1205,6 @@ class SessionManager {
                         }
                     }
 
-                // Si el socket se cerró, NO salir - mantener ventana activa
-                // Los errores de conexión durante estos 5 minutos deben ser ignorados
-                // El código sigue siendo válido hasta que pasen 5 minutos
-                if (!this.sockets.has(sessionIndex)) {
-                    log('warn', `Socket cerrado durante ventana de vinculación, pero código sigue activo...`, sessionIndex);
-                    // NO salir - continuar esperando los 5 minutos completos
-                }
-            }
-
             // Timeout después de 5 minutos - código expiró
             log('warn', `VENTANA DE VINCULACIÓN EXPIRADA: Código ya no es válido (5 min pasaron).`, sessionIndex);
             this.pairingCodeGeneratedAt = null; // Ahora sí limpiar
