@@ -192,6 +192,10 @@ process.env.TMPDIR = tempDir;
 process.env.TEMP = tempDir;
 process.env.TMP = tempDir;
 
+// NOTE: .env watcher was removed from automatic startup per user preference.
+// If you later want runtime dynamic adjustments, re-enable the watcher by
+// importing `initEnvWatcher` and calling `initEnvWatcher(sessionManager)`.
+
 // Cleanup temp every hour
 registerInterval(setInterval(() => {
     try {

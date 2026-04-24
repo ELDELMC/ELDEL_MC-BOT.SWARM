@@ -1,58 +1,53 @@
 import 'dotenv/config';
 
-const _prefixes = process.env.PREFIXES
-    ? process.env.PREFIXES.split(',')
-    : ['.', '!', '/', '#'];
-
-const _sessionCount = Number(process.env.SESSION_COUNT) || 2;
-
-// Generate device names dynamically based on SESSION_COUNT
-const _deviceNames = [];
-for (let i = 0; i < _sessionCount; i++) {
-    const envVar = i === 0 ? 'BOT_ROTO' : i === 1 ? 'PERSONAL' : `SESION_${i + 1}`;
-    _deviceNames.push(process.env[envVar] || `Session ${i + 1}`);
-}
-
+// Export dynamic getters so changes to process.env (e.g., via .env edits)
+// are visible at runtime without reloading modules.
 const config = {
     // ─── Bot Identity ───
-    botName: process.env.BOT_NAME || '⸙𝙴𝙻𝙳𝙴𝙻_𝙼𝙲-𝙱𝙾𝚃⸙',
-    ownerNumber: process.env.OWNER_NUMBER || '',
-    author: process.env.AUTHOR || 'ELDEL_MC',
+    get botName() { return process.env.BOT_NAME || '⸙𝙴𝙻𝙳𝙴𝙻_𝙼𝙲-𝙱𝙾𝚃⸙'; },
+    get ownerNumber() { return process.env.OWNER_NUMBER || ''; },
+    get author() { return process.env.AUTHOR || 'ELDEL_MC'; },
 
     // ─── Sessions ───
-    sessionCount: _sessionCount,
-    deviceNames: _deviceNames,
+    get sessionCount() { return Number(process.env.SESSION_COUNT) || 2; },
+    get deviceNames() {
+        const count = this.sessionCount;
+        const names = [];
+        for (let i = 0; i < count; i++) {
+            const envVar = i === 0 ? 'BOT_ROTO' : i === 1 ? 'PERSONAL' : `SESION_${i + 1}`;
+            names.push(process.env[envVar] || `Session ${i + 1}`);
+        }
+        return names;
+    },
     // Pairing numbers: comma-separated, e.g. "573001234567,573009876543"
-    pairingNumbers: process.env.PAIRING_NUMBERS
-        ? process.env.PAIRING_NUMBERS.split(',').map(n => n.trim())
-        : [],
+    get pairingNumbers() {
+        return process.env.PAIRING_NUMBERS
+            ? process.env.PAIRING_NUMBERS.split(',').map(n => n.trim()).filter(Boolean)
+            : [];
+    },
 
     // ─── Commands ───
-    prefixes: _prefixes,
-    prefix: _prefixes[0],
-    commandMode: process.env.COMMAND_MODE || 'public',
+    get prefixes() { return process.env.PREFIXES ? process.env.PREFIXES.split(',') : ['.', '!', '/', '#']; },
+    get prefix() { return this.prefixes[0]; },
+    get commandMode() { return process.env.COMMAND_MODE || 'public'; },
 
     // ─── Server ───
-    port: Number(process.env.PORT) || 3000,
-    timeZone: process.env.TIMEZONE || 'America/Bogota',
+    get port() { return Number(process.env.PORT) || 3000; },
+    get timeZone() { return process.env.TIMEZONE || 'America/Bogota'; },
 
     // ─── Performance ───
-    deduplicatorTTL: Number(process.env.DEDUP_TTL) || 60,        // seconds
-    adminCacheTTL: Number(process.env.ADMIN_CACHE_TTL) || 300,   // seconds
-    sharedDataCacheMs: Number(process.env.DATA_CACHE_MS) || 5000, // ms
+    get deduplicatorTTL() { return Number(process.env.DEDUP_TTL) || 60; },        // seconds
+    get adminCacheTTL() { return Number(process.env.ADMIN_CACHE_TTL) || 300; },   // seconds
+    get sharedDataCacheMs() { return Number(process.env.DATA_CACHE_MS) || 5000; }, // ms
 
     // ─── Warn system ───
-    warnCount: Number(process.env.WARN_COUNT) || 3,
+    get warnCount() { return Number(process.env.WARN_COUNT) || 3; },
 
     // ─── ESTABILIDAD 24/7 (Nuevos) ───
-    // Keep-alive activo cada X ms (default 60000)
-    keepAliveMs: Number(process.env.KEEPALIVE_MS) || 60000,
-    // Watchdog timeout en ms (default 180000 = 3 min)
-    watchdogTimeoutMs: Number(process.env.WATCHDOG_TIMEOUT_MS) || 180000,
-    // Max reconnection attempts antes de requerir intervención
-    maxReconnectAttempts: Number(process.env.MAX_RECONNECT_ATTEMPTS) || 10,
-    // Delay base para reconexiones en ms (default 15000)
-    baseReconnectDelayMs: Number(process.env.RECONNECT_DELAY_MS) || 15000,
+    get keepAliveMs() { return Number(process.env.KEEPALIVE_MS) || 60000; },
+    get watchdogTimeoutMs() { return Number(process.env.WATCHDOG_TIMEOUT_MS) || 180000; },
+    get maxReconnectAttempts() { return Number(process.env.MAX_RECONNECT_ATTEMPTS) || 10; },
+    get baseReconnectDelayMs() { return Number(process.env.RECONNECT_DELAY_MS) || 15000; },
 };
 
 export default config;

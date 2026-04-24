@@ -67,6 +67,8 @@ class SessionManager {
         // Config de estabilidad
         this.keepAliveMs = config.keepAliveMs || 60000;
         this.watchdogTimeoutMs = config.watchdogTimeoutMs || 180000;
+        // Track how many sessions should be active (may change at runtime)
+        this.activeSessionCount = config.sessionCount || 2;
     }
 
     /**
@@ -201,6 +203,9 @@ class SessionManager {
      */
     async startAll() {
         const count = config.sessionCount || 2;
+
+        // Update active count
+        this.activeSessionCount = count;
 
         // Ensure sessions directory
         if (!fs.existsSync(this.sessionsDir)) {
@@ -672,6 +677,7 @@ class SessionManager {
             
             // Transient errors: usar backoff exponencial
             if (!this.starting.has(sessionIndex)) {
+                const backoffDelay = this._getReconnectDelay(sessionIndex, statusCode);
                 const delayMs = Math.max(backoffDelay, 15000);
                 log('warn', `Reconectando con backoff (${delayMs / 1000}s)...`, sessionIndex);
                 this._markAsClosing(sessionIndex, delayMs);
@@ -861,7 +867,8 @@ class SessionManager {
      */
     getStatus() {
         const status = [];
-        for (let i = 1; i <= config.sessionCount; i++) {
+        const count = this.activeSessionCount || config.sessionCount || 2;
+        for (let i = 1; i <= count; i++) {
             status.push({
                 session: `S${i}`,
                 connected: this.connected.get(i) || false,
@@ -869,6 +876,92 @@ class SessionManager {
             });
         }
         return status;
+    }
+
+    /**
+     * Stop a running session cleanly (do not delete session data)
+     * @param {number} sessionIndex
+     */
+    async stopSession(sessionIndex) {
+        try {
+            const sock = this.sockets.get(sessionIndex);
+            if (sock) {
+                try {
+                    if (typeof sock.logout === 'function') {
+                        await sock.logout();
+                    } else if (typeof sock.end === 'function') {
+                        sock.end();
+                    } else if (typeof sock.close === 'function') {
+                        sock.close();
+                    }
+                } catch (err) {
+                    // best-effort
+                }
+            }
+
+            this.connected.set(sessionIndex, false);
+            this._stopKeepAlive(sessionIndex);
+            this._stopWatchdog(sessionIndex);
+
+            try { loadBalancer.unregister(sessionIndex); } catch (_) { }
+
+            try { this.sockets.delete(sessionIndex); } catch (_) { }
+
+            // Remove lock file if present
+            try {
+                const sessionPath = path.join(this.sessionsDir, `session-${sessionIndex}`);
+                const lockFile = path.join(sessionPath, '.session.lock');
+                if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+            } catch (_) { }
+
+            log('info', `Stopped S${sessionIndex} by request` , sessionIndex);
+        } catch (err) {
+            log('warn', `Failed to stop S${sessionIndex}: ${err.message}`, sessionIndex);
+        }
+    }
+
+    /**
+     * Adjust number of active sessions at runtime.
+     * If increasing, will start sessions sequentially.
+     * If decreasing, will stop highest-index sessions first.
+     */
+    async adjustSessionCount(newCount) {
+        newCount = Number(newCount) || 0;
+        const current = this.activeSessionCount || 0;
+
+        if (newCount === current) {
+            log('info', `Session count unchanged: ${current}`);
+            return;
+        }
+
+        log('info', `Adjusting sessions: ${current} -> ${newCount}`);
+
+        // Set activeSessionCount early so getStatus reflects desired target immediately
+        this.activeSessionCount = newCount;
+
+        if (newCount > current) {
+            // Start additional sessions sequentially (1..N)
+            for (let i = current + 1; i <= newCount; i++) {
+                try {
+                    // Wait a short delay before starting next to avoid race
+                    await delay(2000);
+                    await this._startSession(i);
+                } catch (err) {
+                    log('error', `Failed to start session ${i}: ${err.message}`, i);
+                }
+            }
+        } else {
+            // Stop sessions with index > newCount
+            for (let i = current; i > newCount; i--) {
+                try {
+                    await this.stopSession(i);
+                } catch (err) {
+                    log('warn', `Failed to stop session ${i}: ${err.message}`, i);
+                }
+            }
+        }
+
+        log('success', `Session count adjusted to ${newCount}`);
     }
 
     // ═══════════════════════════════════════════════════════════

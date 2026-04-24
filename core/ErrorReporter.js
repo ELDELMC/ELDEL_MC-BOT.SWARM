@@ -15,6 +15,7 @@ import config from '../config.js';
 import { formatErrorReport } from './ErrorFormatter.js';
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'crypto';
 
 class ErrorReporter {
     constructor() {
@@ -116,17 +117,18 @@ class ErrorReporter {
      */
     async sendErrorReport(errorMsg, errorType, sourceSessionIndex = null, metadata = {}) {
         try {
-            // Generate unique error ID for deduplication
-            const errorHash = `${errorType}-${Date.now()}-${sourceSessionIndex}`;
+            // Generate deterministic unique error ID for deduplication
+            const hashInput = `${errorType}:${(errorMsg || '').substring(0,1000)}:${JSON.stringify(metadata || {})}:${sourceSessionIndex ?? 'null'}`;
+            const errorHash = createHash('sha256').update(hashInput).digest('hex');
             if (this.reportedErrors.has(errorHash)) {
                 return; // Already reported
             }
             this.reportedErrors.add(errorHash);
-            
+
             // Clean old entries if set is too large
-            if (this.reportedErrors.size > 100) {
+            if (this.reportedErrors.size > 1000) {
                 const arr = Array.from(this.reportedErrors);
-                this.reportedErrors = new Set(arr.slice(-50));
+                this.reportedErrors = new Set(arr.slice(-500));
             }
 
             // Determine reporting session
