@@ -1,0 +1,318 @@
+/**
+ * ─── MESSAGE HANDLER ───
+ * Processes incoming messages that have been claimed by the Deduplicator.
+ * Routes commands, checks permissions, applies formatting.
+ */
+
+import config from '../config.js';
+import { log, logMessage } from './Logger.js';
+import { reply, toMono } from './Formatter.js';
+import commandHandler from './CommandHandler.js';
+import adminChecker from './AdminChecker.js';
+import loadBalancer from './LoadBalancer.js';
+import sharedData from './SharedData.js';
+import { processSpyMessage } from './spyMode.js';
+import { processOrderModeMessage } from '../plugins/order.js';
+import activityTracker from './ActivityTracker.js';
+
+/**
+ * Retry a function up to N times with exponential backoff.
+ */
+async function retryWithBackoff(fn, maxRetries = 3, baseDelayMs = 100) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await fn();
+        } catch (err) {
+            if (i === maxRetries - 1) throw err;
+            const delayMs = baseDelayMs * Math.pow(2, i);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+    }
+}
+
+/**
+ * Extract readable text from a Baileys message object.
+ */
+function extractText(message) {
+    const m = message.message;
+    if (!m) return '';
+    return (
+        m.conversation ||
+        m.extendedTextMessage?.text ||
+        m.imageMessage?.caption ||
+        m.videoMessage?.caption ||
+        m.buttonsResponseMessage?.selectedButtonId ||
+        ''
+    ).trim();
+}
+
+/**
+ * Detect message type label for logging.
+ */
+function getMessageType(message) {
+    const key = Object.keys(message.message || {})[0] || 'unknown';
+    const labels = {
+        conversation: 'TEXT',
+        extendedTextMessage: 'TEXT',
+        imageMessage: 'IMAGE',
+        videoMessage: 'VIDEO',
+        audioMessage: 'AUDIO',
+        documentMessage: 'DOC',
+        stickerMessage: 'STICKER',
+        contactMessage: 'CONTACT',
+        locationMessage: 'LOCATION',
+    };
+    return labels[key] || key.replace('Message', '').toUpperCase();
+}
+
+/**
+ * Check if a user is the owner.
+ */
+function isOwner(senderId) {
+    if (!config.ownerNumber) return false;
+    const senderNum = senderId.replace('@s.whatsapp.net', '').replace('@lid', '').split(':')[0];
+    return senderNum === config.ownerNumber;
+}
+
+/**
+ * Check if a user is banned.
+ */
+function isBanned(senderId) {
+    const banned = sharedData.read('banned.json', []);
+    const senderNorm = senderId.replace('@s.whatsapp.net', '').replace('@lid', '').split(':')[0];
+    return banned.some(b => {
+        const bNorm = b.replace('@s.whatsapp.net', '').replace('@lid', '').split(':')[0];
+        return bNorm === senderNorm;
+    });
+}
+
+/**
+ * Handle an incoming message.
+ * Called ONLY by the session that won the deduplication race.
+ * 
+ * @param {object} sock - Baileys socket for the winning session
+ * @param {object} message - The Baileys message object
+ * @param {number} sessionIndex - 1-based session number
+ */
+export async function handleMessage(sock, message, sessionIndex) {
+    try {
+        if (!message?.message) return;
+
+        // Unwrap ephemeral
+        if (Object.keys(message.message)[0] === 'ephemeralMessage') {
+            message.message = message.message.ephemeralMessage.message;
+        }
+
+        // Skip status broadcasts
+        if (message.key?.remoteJid === 'status@broadcast') return;
+
+        // Skip protocol/reaction messages
+        const msgType = Object.keys(message.message)[0];
+        if (['senderKeyDistributionMessage', 'protocolMessage', 'reactionMessage'].includes(msgType)) return;
+
+        const chatId = message.key.remoteJid;
+        const isGroup = chatId?.endsWith('@g.us') || false;
+        const senderId = message.key.participant || message.key.remoteJid;
+        const fromMe = message.key.fromMe;
+        const messageText = extractText(message);
+        const isCommand = config.prefixes.some(p => messageText.startsWith(p));
+
+        // ─── Log the message ───
+        logMessage({
+            sessionIndex,
+            fromMe,
+            senderName: message.pushName || '',
+            senderPhone: senderId?.split('@')[0]?.split(':')[0] || '',
+            groupName: isGroup ? (await sock.groupMetadata(chatId).catch(() => null))?.subject : null,
+            messageType: getMessageType(message),
+            messageText,
+            isCommand,
+        });
+
+        // ─── SPY MODE: Capture group members (background) ───
+        if (isGroup && !fromMe && message.key.participant) {
+            // Fire and forget - don't await to not slow down message processing
+            processSpyMessage(sock, chatId, message.key.participant).catch(err => 
+                log('warn', `SPY MODE error: ${err.message}`, sessionIndex)
+            );
+        }
+
+        // ─── ACTIVITY TRACKER: Record user activity ───
+        if (isGroup && !fromMe) {
+            activityTracker.recordMessage(chatId, senderId, message.pushName).catch(err =>
+                log('warn', `ACTIVITY TRACKER error: ${err.message}`, sessionIndex)
+            );
+        }
+
+        // ─── ORDER MODE: Capture phone numbers from messy texts ───
+        if (messageText.length > 0) {
+            const orderResult = await processOrderModeMessage(
+                sock, 
+                chatId, 
+                senderId, 
+                messageText, 
+                sessionIndex
+            ).catch(err => {
+                log('warn', `ORDER MODE error: ${err.message}`, sessionIndex);
+                return { processed: false, count: 0 };
+            });
+
+            // If user is in active ORDER mode, we process numbers.
+            // If they send a command starting with prefix, we let it fall through.
+            if (orderResult.active && !isCommand) {
+                // User is in ORDER mode - skip command parsing for non-command text
+                return;
+            }
+        }
+
+        // ─── Not a command → skip ───
+        if (!isCommand) return;
+
+        // ─── Check banned ───
+        if (!fromMe && isBanned(senderId)) {
+            log('warn', `Banned user blocked: ${senderId.split('@')[0]}`, sessionIndex);
+            return;
+        }
+
+        // ─── Parse command ───
+        const match = commandHandler.getCommand(messageText, config.prefixes);
+        if (!match) {
+            // Log unrecognized command attempt for debugging
+            log('info', `Unrecognized command attempt: ${messageText.split(' ')[0]}`, sessionIndex);
+            
+            // Try suggestion
+            const usedPrefix = config.prefixes.find(p => messageText.startsWith(p));
+            if (usedPrefix) {
+                const typed = messageText.slice(usedPrefix.length).trim().split(/\s+/)[0].toLowerCase();
+                const suggestion = commandHandler.findSuggestion(typed);
+                if (suggestion) {
+                    await sock.sendMessage(chatId, {
+                        text: reply(`Quisiste decir ${usedPrefix}${suggestion}?`),
+                    }, { quoted: message });
+                }
+            }
+            return;
+        }
+
+        const { command: cmd, prefix: usedPrefix } = match;
+
+        // ─── Cooldown ───
+        if (commandHandler.isOnCooldown(senderId, cmd.command, cmd.cooldown || 3000)) {
+            log('info', `Cooldown triggered for ${cmd.command} (User: ${senderId.split('@')[0]})`, sessionIndex);
+            return;
+        }
+
+        // ─── Permission checks ───
+        const senderIsOwner = fromMe || isOwner(senderId);
+
+        // Owner-only commands
+        if (cmd.ownerOnly && !senderIsOwner) {
+            log('warn', `Owner command ${cmd.command} REJECTED for non-owner: ${senderId.split('@')[0]}`, sessionIndex);
+            await sock.sendMessage(chatId, {
+                text: reply('Este comando es solo para el owner del bot.'),
+            }, { quoted: message });
+            return;
+        }
+
+        // Group-only commands
+        if (cmd.groupOnly && !isGroup) {
+            log('warn', `Group command ${cmd.command} REJECTED in private chat with: ${senderId.split('@')[0]}`, sessionIndex);
+            await sock.sendMessage(chatId, {
+                text: reply('Este comando solo funciona en grupos.'),
+            }, { quoted: message });
+            return;
+        }
+
+        // ─── Admin checks ───
+        let isSenderAdmin = false;
+        let isBotAdmin = false;
+
+        if (cmd.adminOnly && isGroup) {
+            log('info', `Checking admins for command ${cmd.command}...`, sessionIndex);
+            const adminResult = await adminChecker.check(sock, chatId, senderId);
+            isBotAdmin = adminResult.isBotAdmin;
+            isSenderAdmin = adminResult.isSenderAdmin;
+
+            if (!isBotAdmin) {
+                    // Try to find another session that IS admin
+                    log('balancer', `Local session S${sessionIndex} is not admin. Searching alternatives...`, sessionIndex);
+                    const alternative = await loadBalancer.pick(chatId, true);
+                    
+                    // If no session is admin, tell the user
+                    if (!alternative) {
+                        log('warn', `No session is admin for command ${cmd.command} in ${chatId}`, sessionIndex);
+                        await sock.sendMessage(chatId, {
+                            text: reply('El bot necesita ser administrador para ejecutar este comando.'),
+                        }, { quoted: message });
+                        return;
+                    }
+                    
+                    const altAdmin = await adminChecker.check(alternative.sock, chatId, senderId);
+                    if (altAdmin.isBotAdmin) {
+                        // Delegate to the admin session
+                        log('balancer', `Successfully delegated ${cmd.command} to S${alternative.sessionIndex} (admin session)`, sessionIndex);
+                        sock = alternative.sock;
+                        isBotAdmin = altAdmin.isBotAdmin;
+                        isSenderAdmin = altAdmin.isSenderAdmin;
+                    } else {
+                        log('warn', `Admin command ${cmd.command} REJECTED: No session is admin in ${chatId}`, sessionIndex);
+                        await sock.sendMessage(chatId, {
+                            text: reply('El bot necesita ser administrador para ejecutar este comando.'),
+                        }, { quoted: message });
+                        return;
+                    }
+                }
+
+                if (!isSenderAdmin && !senderIsOwner) {
+                    log('warn', `Admin command ${cmd.command} REJECTED: User ${senderId.split('@')[0]} is not admin`, sessionIndex);
+                    await sock.sendMessage(chatId, {
+                        text: reply('Solo los administradores del grupo pueden usar este comando.'),
+                    }, { quoted: message });
+                return;
+            }
+        }
+
+        // ─── Extract args ───
+        const rawArgs = messageText.slice(usedPrefix.length).trim();
+        const args = rawArgs.split(/\s+/).slice(1);
+
+        // ─── Build context ───
+        const context = {
+            chatId,
+            senderId,
+            isGroup,
+            fromMe,
+            isSenderAdmin,
+            isBotAdmin,
+            senderIsOwner,
+            args,
+            rawText: messageText,
+            prefix: usedPrefix,
+            sessionIndex,
+            config,
+        };
+
+        // ─── Execute ───
+        const startMs = Date.now();
+        try {
+            await cmd.handler(sock, message, args, context);
+            const duration = Date.now() - startMs;
+            commandHandler.recordExecution(cmd.command, duration, false);
+            loadBalancer.completeTask(sessionIndex);
+            log('cmd', `${usedPrefix}${cmd.command} (${duration}ms)`, sessionIndex);
+        } catch (err) {
+            const duration = Date.now() - startMs;
+            commandHandler.recordExecution(cmd.command, duration, true);
+            loadBalancer.completeTask(sessionIndex);
+            log('error', `Command ${cmd.command} failed: ${err.message}`, sessionIndex);
+            console.error(err.stack);
+            await sock.sendMessage(chatId, {
+                text: reply(`Error ejecutando el comando: ${err.message}`),
+            }, { quoted: message }).catch(() => {});
+        }
+
+    } catch (err) {
+        log('error', `MessageHandler error: ${err.message}`, sessionIndex);
+        console.error(err.stack);
+    }
+}
